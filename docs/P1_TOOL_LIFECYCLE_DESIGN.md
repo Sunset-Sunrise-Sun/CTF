@@ -456,6 +456,15 @@ Canonical UTF-8 hex：
 "\"\\\u0000\b\t\n\f\r\u2028\u2029\ud83d\ude00"
 ```
 
+**V2/V3 Golden 候选摘要（Python 与 Node.js 独立计算一致；完整 framing hex 仍待补入 fixture）**
+
+| 向量 | J(R_1) bytes | content message bytes | content_fingerprint | J(M) bytes | batch message bytes | batch_digest |
+|---|---:|---:|---|---:|---:|---|
+| V2 工具片段 | 161 | 554 | `6eb4f5c21a60752172c31d5f12406097745a8f44beaf427e225821e92726ad1c` | 641 | 682 | `184636adc641086fdcc1b8d2b3331ac58d18add5683a2d73e74111a11f9beda1` |
+| V3 特殊转义 | 94 | 487 | `1eb38a23e50cd057323999f0c62957d8a7c2271d54e513d42f2c36a8560b50b2` | 641 | 682 | `ed42d756080b00dbad1f573e3c8025079d2c657a48051f74eb982f2063607c4f` |
+
+V2 的 `function.arguments` 保持原始字符串 `{"n":1.0}`；V3 内容 UTF-8 长度为 18 bytes，包含 quote、反斜杠、NUL、BS、TAB、LF、FF、CR、U+2028、U+2029 与 U+1F600。以上摘要尚不是完整 KAT fixture；V2/V3 的 J(C)/J(R)/J(M) 与 F 消息完整 hex 仍需写入冻结文件。
+
 拒绝码固定设计：非法 JSON 词法、NaN/Infinity/-Infinity 或非法 Unicode 为 invalid_json；解码后重复键为 duplicate_key；小数/指数 token、字符串/bool/null 冒充整数为 integer_type；整数负零为 noncanonical_integer；超界或不满足正/非负字段为 range_error；不合法时间串统一 timestamp_format；C/M 对应字段不一致为 context_mismatch。实现前冻结的 negative 向量应逐个对应唯一预期码，不能接受一组候选码。多种错误同时出现的向量不用于判定错误优先级，除非另行冻结了优先顺序。
 
 | KAT | 固定输入/变体 | 预期输出设计要求（待冻结/验证） |
