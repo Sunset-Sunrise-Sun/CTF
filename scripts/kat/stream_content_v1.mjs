@@ -9,8 +9,36 @@ const SAFE=9007199254740991, INDEX=2147483647;
 const DC=Buffer.from('CTF/model-stream/content/v1'), DB=Buffer.from('CTF/model-stream/batch/v1');
 const CK='fingerprint_version key_id audit_dataset_id challenge_id request_id batch_id first_sequence last_sequence chunk_count'.split(' ');
 const EK='provider_id model_id content_bytes_delta tool_delta_count first_received_at last_received_at'.split(' ');
-class Rejected extends Error { constructor(code,limit){super(code);this.code=code;this.limit=limit;} }
-function no(code,limit){throw new Rejected(code,limit);}
+class Rejected extends Error { constructor(code,limit,structure){super(code);this.code=code;this.limit=limit;this.structure=structure;} }
+function no(code,limit,structure){throw new Rejected(code,limit,structure);}
+// Separate iterative preflight, independent of the recursive value parser.
+// Reserve each member at its opening quote, before descending into its value.
+function guardStructure(source){
+  const stack=[]; // Never more than 8 scanner frames, not input containers.
+  let inString=false,escaped=false,keyString=false;
+  for(const ch of source){
+    if(inString){
+      if(escaped)escaped=false;
+      else if(ch==='\\')escaped=true;
+      else if(ch==='"'){inString=false;if(keyString)stack.at(-1).keyExpected=false;}
+      continue;
+    }
+    if(ch==='"'){
+      keyString=!!(stack.length&&stack.at(-1).kind==='{'&&stack.at(-1).keyExpected);
+      if(keyString){
+        if(stack.at(-1).members===16)no('limit_exceeded','projection_structure','object_keys');
+        stack.at(-1).members++;
+      }
+      inString=true;
+    }else if(ch==='{'||ch==='['){
+      if(stack.length===8)no('limit_exceeded','projection_structure','container_depth');
+      stack.push({kind:ch,members:0,keyExpected:ch==='{'});
+    }else if(ch==='}'||ch===']'){
+      if(!stack.length||stack.at(-1).kind!==(ch==='}'?'{':'['))no('invalid_json');
+      stack.pop();
+    }else if(ch===','&&stack.length&&stack.at(-1).kind==='{')stack.at(-1).keyExpected=true;
+  }
+}
 function str(v,cap=262144,nonempty=false){
   if(typeof v!=='string')no('fingerprint_schema_error');
   for(const c of v){const n=c.codePointAt(0);if(n>=0xd800&&n<=0xdfff)no('invalid_json');}
@@ -29,6 +57,7 @@ function parse(raw){
   if(raw.length>=3&&raw.subarray(0,3).equals(Buffer.from([239,187,191])))no('invalid_json');
   let source;
   try{source=new TextDecoder('utf-8',{fatal:true}).decode(raw);}catch{no('invalid_json');}
+  guardStructure(source);
   let i=0;
   const ws=()=>{while(i<source.length&&/[\x20\t\n\r]/.test(source[i]))i++;};
   function string(){
@@ -187,7 +216,7 @@ function evaluate(c,key){
     if(c.mode==='field'){keys(x,['field','value']);field(x.field,x.value);return {status:'ok',canonical_hex:canonical(x.value).toString('hex')};}
     if(c.mode==='canonical')return {status:'ok',canonical_hex:canonical(x).toString('hex')};
     throw new Error('Unknown fixture mode');
-  }catch(e){if(!(e instanceof Rejected))throw e;return {status:'error',code:e.code,...(e.limit?{limit_code:e.limit}:{})};}
+  }catch(e){if(!(e instanceof Rejected))throw e;return {status:'error',code:e.code,...(e.limit?{limit_code:e.limit}:{}),...(e.structure?{structure_limit:e.structure}:{})};}
 }
 const argv=process.argv.slice(2),get=k=>argv[argv.indexOf(k)+1];
 if(!argv.includes('--fixture'))throw new Error('--fixture required');
