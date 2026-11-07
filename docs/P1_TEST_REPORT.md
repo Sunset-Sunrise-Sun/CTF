@@ -35,13 +35,16 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 ## 远程 CI
 
-| 项目 | 结果 |
-|---|---|
-| PR | 待创建 |
-| `P0 checks`（backend） | 待运行 |
-| `P0 checks`（frontend） | 待运行 |
+PR：**#2**（Draft）https://github.com/Sunset-Sunrise-Sun/CTF/pull/2 ，目标分支 `feat/framework-scaffold`。
 
-> 远程 CI 状态以 PR 页面实际运行结果为准，创建 PR 后回填运行链接与结论。
+代码与测试提交 `bf7ccc1ef` 触发的两次 `P0 checks` 运行均通过：
+
+| 运行 | 事件 | 结果 | 链接 |
+|---|---|---|---|
+| 42367696933 | push | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42367696933 |
+| 42367716362 | pull_request | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42367716362 |
+
+本报告所在提交为后续文档提交，PR 最终 head 的 `P0 checks` 使用同一 workflow；以 PR Checks 页面最新运行结果为准（验收时应为通过）。
 
 ## 复现
 
