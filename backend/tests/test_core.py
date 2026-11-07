@@ -69,7 +69,7 @@ def test_migrations_and_append_only(store):
     )
     assert e.event_type == "agent_message"
     with store.connect() as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
         for sql in ["UPDATE events SET sequence=2", "DELETE FROM events"]:
             with pytest.raises(sqlite3.IntegrityError):
                 db.execute(sql)
