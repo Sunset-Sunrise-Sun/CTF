@@ -1,0 +1,23 @@
+$ git rev-parse HEAD
+e581144c68bf05932334decc4babc9b61a764bb5
+
+$ git log -1 --format=%H %P
+e581144c68bf05932334decc4babc9b61a764bb5 00e9436a73d33e01b1a288334b7c08a48661e42e 778bad7c6db0f4412ce3c55bca0c24b78ad66905
+
+$ git merge-base ed4850dc17601a9e8177c12c95d1281e072cccd4 778bad7c6db0f4412ce3c55bca0c24b78ad66905
+ed4850dc17601a9e8177c12c95d1281e072cccd4
+
+$ git merge-base 00e9436a73d33e01b1a288334b7c08a48661e42e 778bad7c6db0f4412ce3c55bca0c24b78ad66905
+575f3d06c66770ab37269e19e078691cd9a9a9f7
+
+$ git merge-base HEAD 778bad7c6db0f4412ce3c55bca0c24b78ad66905
+778bad7c6db0f4412ce3c55bca0c24b78ad66905
+
+$ git merge-base HEAD 00e9436a73d33e01b1a288334b7c08a48661e42e
+00e9436a73d33e01b1a288334b7c08a48661e42e
+
+$ git status --porcelain
+
+git merge-base --is-ancestor ed4850dc17601a9e8177c12c95d1281e072cccd4 778bad7c6db0f4412ce3c55bca0c24b78ad66905: exit 0
+git merge-base --is-ancestor 778bad7c6db0f4412ce3c55bca0c24b78ad66905 HEAD: exit 0
+git merge-base --is-ancestor 00e9436a73d33e01b1a288334b7c08a48661e42e HEAD: exit 0

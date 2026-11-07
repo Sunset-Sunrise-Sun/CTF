@@ -1,0 +1,12 @@
+Windows Windows-11-10.0.26200-SP0
+Python 3.14.7
+SQLite 3.50.4
+pytest 9.1.1
+ruff 0.14.10
+fastapi 0.142.2
+pydantic 2.13.5
+httpx 0.28.1
+uvicorn 0.54.0
+python-multipart 0.0.20
+v24.19.0
+11.17.0
