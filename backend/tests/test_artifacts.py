@@ -35,7 +35,7 @@ from app.artifacts import (
 )
 from app.main import ArtifactBodyLimitMiddleware, ArtifactBodyTooLarge, create_app
 from app.models import Challenge, Event
-from app.store import Store
+from app.store import Store, digest
 
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 ARTIFACT_FIELDS = {
@@ -1269,3 +1269,196 @@ def test_junction_escape_rejected(tmp_path: Path) -> None:
         store.blob_path("ab" * 32)
     with pytest.raises(ArtifactPathError):
         store.ingest(io.BytesIO(b"synthetic junction escape"), filename="x.bin")
+
+
+# ---------------------------------------------------------------------------
+# artifact <-> source event association constraints (002 migration fix)
+# ---------------------------------------------------------------------------
+
+
+def insert_artifact_row(
+    data_root: Path,
+    *,
+    artifact_id: str,
+    challenge_id: str,
+    sha256: str,
+    source_event_id: str,
+) -> None:
+    """Insert an artifact row directly so constraint violations can be tested."""
+    connection = sqlite3.connect(data_root / "workbench.sqlite3", timeout=15)
+    try:
+        connection.execute("PRAGMA foreign_keys=ON")
+        with connection:
+            connection.execute(
+                "INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    artifact_id,
+                    challenge_id,
+                    sha256,
+                    4,
+                    "text/plain",
+                    "synthetic.bin",
+                    "2026-11-07T00:00:00+00:00",
+                    source_event_id,
+                ),
+            )
+    finally:
+        connection.close()
+
+
+def test_source_event_is_unique_per_artifact(
+    client: TestClient, data_root: Path, cid: str
+) -> None:
+    """One event must not be the source event of two artifacts."""
+    uploaded = upload(client, cid, b"synthetic unique source event").json()
+    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+        insert_artifact_row(
+            data_root,
+            artifact_id="00000000-0000-0000-0000-0000000000aa",
+            challenge_id=cid,
+            sha256="b" * 64,
+            source_event_id=uploaded["source_event_id"],
+        )
+    assert [
+        item["artifact_id"]
+        for item in client.get(f"/api/challenges/{cid}/artifacts").json()
+    ] == [uploaded["artifact_id"]]
+    assert_challenge_integrity(client, cid, True)
+
+
+def test_artifact_cannot_reference_other_challenge_event(
+    client: TestClient, data_root: Path, cid: str, other_cid: str
+) -> None:
+    """The composite foreign key keeps artifact and source event in one challenge."""
+    foreign_event = client.post(
+        f"/api/challenges/{cid}/notes",
+        json={"text": "synthetic event owned by another challenge"},
+    ).json()
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        insert_artifact_row(
+            data_root,
+            artifact_id="00000000-0000-0000-0000-0000000000bb",
+            challenge_id=other_cid,
+            sha256="c" * 64,
+            source_event_id=foreign_event["event_id"],
+        )
+    assert client.get(f"/api/challenges/{other_cid}/artifacts").json() == []
+    assert_challenge_integrity(client, cid, True)
+    assert_challenge_integrity(client, other_cid, True)
+
+
+def test_constraints_keep_upload_dedupe_and_cross_challenge_behavior(
+    client: TestClient, data_root: Path, cid: str, other_cid: str
+) -> None:
+    """Normal upload, same-challenge dedupe and cross-challenge copies still work."""
+    payload = b"synthetic constraints regression payload"
+    first = upload(client, cid, payload)
+    assert first.status_code == 201
+    artifact = first.json()
+
+    repeated = upload(client, cid, payload, filename="again.bin")
+    assert repeated.status_code == 200
+    assert repeated.json()["artifact_id"] == artifact["artifact_id"]
+    assert len(client.get(f"/api/challenges/{cid}/events").json()) == 1
+
+    across = upload(client, other_cid, payload, filename="copy.bin")
+    assert across.status_code == 201
+    copy = across.json()
+    assert copy["artifact_id"] != artifact["artifact_id"]
+    assert copy["sha256"] == artifact["sha256"]
+    assert copy["source_event_id"] != artifact["source_event_id"]
+    assert len(client.get(f"/api/challenges/{other_cid}/events").json()) == 1
+
+    assert len(blob_files(data_root)) == 1
+    assert_challenge_integrity(client, cid, True)
+    assert_challenge_integrity(client, other_cid, True)
+
+
+def test_migration_preserves_p0_data_and_adds_relation_constraints(
+    tmp_path: Path,
+) -> None:
+    """A P0 (001 only) database upgrades and keeps its challenges/events/chain."""
+    data_root = tmp_path / "p0-data"
+    data_root.mkdir()
+    db_path = data_root / "workbench.sqlite3"
+    challenge = Challenge(name="Synthetic P0 migration", category="Crypto")
+    event = Event(
+        challenge_id=challenge.challenge_id,
+        sequence=1,
+        actor="user",
+        event_type="note",
+        payload={"text": "synthetic P0 note"},
+        previous_event_hash="0" * 64,
+    )
+    event.event_hash = digest(event)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript("PRAGMA foreign_keys=ON;")
+        connection.executescript(
+            "CREATE TABLE schema_migrations (version TEXT PRIMARY KEY);"
+        )
+        connection.executescript(
+            (
+                Path(__file__).parent.parent / "app/migrations/001_initial.sql"
+            ).read_text()
+        )
+        connection.execute("INSERT INTO schema_migrations VALUES ('001_initial.sql')")
+        connection.execute(
+            "INSERT INTO challenges VALUES (?,?)",
+            (challenge.challenge_id, challenge.model_dump_json()),
+        )
+        connection.execute(
+            "INSERT INTO events VALUES (?,?,?,?)",
+            (
+                event.event_id,
+                challenge.challenge_id,
+                event.sequence,
+                event.model_dump_json(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO event_heads VALUES (?,?,?)",
+            (challenge.challenge_id, event.sequence, event.event_hash),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    # Opening the store applies 002_artifacts.sql to the existing P0 database.
+    upgraded = Store(db_path)
+    assert upgraded.get(challenge.challenge_id).name == challenge.name
+    assert [item.sequence for item in upgraded.events(challenge.challenge_id)] == [1]
+    assert upgraded.verify(challenge.challenge_id) == {
+        "valid": True,
+        "earliest_affected_sequence": None,
+    }
+    with upgraded.connect() as db:
+        versions = [
+            row[0]
+            for row in db.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+        ]
+        event_indexes = {row[1] for row in db.execute("PRAGMA index_list(events)")}
+        artifact_fks = {
+            (row[2], row[3], row[4])
+            for row in db.execute("PRAGMA foreign_key_list(artifacts)")
+        }
+    assert versions == ["001_initial.sql", "002_artifacts.sql"]
+    assert "events_challenge_event" in event_indexes
+    assert ("events", "challenge_id", "challenge_id") in artifact_fks
+    assert ("events", "source_event_id", "event_id") in artifact_fks
+
+    # The upgraded database still serves P0 data and accepts a new artifact.
+    with TestClient(create_app(data_root)) as client:
+        listed = client.get("/api/challenges").json()
+        assert [item["challenge_id"] for item in listed] == [challenge.challenge_id]
+        events = client.get(f"/api/challenges/{challenge.challenge_id}/events").json()
+        assert [item["event_id"] for item in events] == [event.event_id]
+        assert_challenge_integrity(client, challenge.challenge_id, True)
+        uploaded = upload(
+            client, challenge.challenge_id, b"synthetic post-upgrade artifact"
+        )
+        assert uploaded.status_code == 201
+        assert_challenge_integrity(client, challenge.challenge_id, True)

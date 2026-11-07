@@ -36,12 +36,13 @@ Artifact (artifacts 表)                         Event (events 表, append-only)
 ```
 
 - 一个 Challenge 拥有多个 Artifact；不同题目即使内容相同也各有独立 Artifact 行（独立 `artifact_id`）。
-- 每个 Artifact 恰好对应一条 `artifact_added` 事件（`source_event_id`），该事件的 `artifact_ids` 为 `[artifact_id]`，payload 只含 `artifact_id/sha256/size/media_type`，不含文件内容。
+- 每个 Artifact 恰好对应一条 `artifact_added` 事件（`source_event_id`），该事件的 `artifact_ids` 为 `[artifact_id]`，payload 只含 `artifact_id/sha256/size/media_type`，不含文件内容。数据库层用 `source_event_id UNIQUE` 与 `(challenge_id, source_event_id) → events(challenge_id, event_id)` 联合外键强制该一对一关系及同题归属。
 - 事件哈希链沿用 P0 规则：`event_hash = SHA256(canonical(Event - event_hash))`，`previous_event_hash` 指向前一条；`artifacts` 参与 FK 但事件 payload 不写回历史，保证「不修改现有事件历史」。
 
 数据库约束（`002_artifacts.sql`）：
 
 ```sql
+CREATE UNIQUE INDEX events_challenge_event ON events(challenge_id, event_id);
 CREATE TABLE artifacts (
  artifact_id TEXT PRIMARY KEY,
  challenge_id TEXT NOT NULL REFERENCES challenges(challenge_id),
@@ -50,17 +51,20 @@ CREATE TABLE artifacts (
  media_type TEXT NOT NULL CHECK(length(media_type) > 0),
  original_filename TEXT NOT NULL CHECK(length(original_filename) > 0),
  ingested_at TEXT NOT NULL,
- source_event_id TEXT NOT NULL REFERENCES events(event_id),
- UNIQUE(challenge_id, sha256)
+ source_event_id TEXT NOT NULL UNIQUE,
+ UNIQUE(challenge_id, sha256),
+ FOREIGN KEY (challenge_id, source_event_id)
+  REFERENCES events(challenge_id, event_id)
 );
 CREATE INDEX artifacts_by_challenge ON artifacts(challenge_id);
 CREATE TRIGGER artifacts_no_update BEFORE UPDATE ON artifacts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER artifacts_no_delete BEFORE DELETE ON artifacts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 ```
 
-`UNIQUE(challenge_id, sha256)` 保证同题同内容只有一条 Artifact；跨题不冲突。
-`source_event_id` 外键指向 `events(event_id)`，保证不会出现「有元数据没有来源事件」的行。
-升级到 `002_artifacts.sql` 时按 `schema_migrations` 顺序增量应用，无需重建 P0 数据。
+- `UNIQUE(challenge_id, sha256)` 保证同题同内容只有一条 Artifact；跨题不冲突。
+- `source_event_id UNIQUE` 与联合外键 `(challenge_id, source_event_id) → events(challenge_id, event_id)` 共同保证来源事件与 Artifact **严格一对一且属于同一 Challenge**：同一个事件不能成为两个 Artifact 的来源，Artifact 也不能引用其他题目的事件；`events_challenge_event` 复合唯一索引作为该联合外键的父键。
+- 事件与 Artifact 的写入仍在同一 SQLite 事务内完成（先事件、后 Artifact），因此约束不会造成「事件已写入但 Artifact 未写入」的中间状态；失败整体回滚。
+- 升级到 `002_artifacts.sql` 时按 `schema_migrations` 顺序增量应用，无需重建 P0 数据。该迁移在 PR 合并前经过关联约束修正；对已应用旧版 002 的本地开发数据库，需要重建数据目录（未发布迁移，不影响 P0 生产数据）。
 
 ## 3. 存储布局与内容寻址
 
