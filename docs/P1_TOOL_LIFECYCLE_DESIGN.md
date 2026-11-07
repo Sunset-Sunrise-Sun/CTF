@@ -1,38 +1,38 @@
-# P1-2 工具生命周期与审计接口设计
+# P1-2 ����������������ƽӿ����
 
-版本：0.1，2026-11-07。状态：设计提案，待独立审核；不是已实现能力说明。
+�汾��0.2��2026-11-07���������ߣ�8c4073975bc25c2b50ad2a18ee768ce6547080c8��״̬������᰸����������ˣ�������ʵ������˵����
 
-本轮只新增本文。不得改变 PR #1/#2 的代码、执行真实工具或开放模型网络 API。后续实现必须在独立实现分支通过审查；本文的 HTTP 路由、内部方法与数据库对象均为建议，不得在本轮注册或应用。
+����ֻ�޸�����ĵ�������Ϊͳһ�淶���ģ�[Review �����ĵ�](P1_TOOL_LIFECYCLE_REVIEW_ADDENDUM.md) ������ R1�CR4 �����������¼�������踲�����ĵĹ��򡣲��øı� PR #1/#2 �Ĵ��롢ִ����ʵ���߻򿪷�ģ������ API������ʵ�ֱ����ڶ���ʵ�ַ�֧ͨ����飻���ĵ� HTTP ·�ɡ��ڲ����������ݿ�����Ϊ���飬�����ڱ���ע���Ӧ�á�
 
-## 1. 审查基线与结论
+## 1. �����������
 
-审查固定提交，避免用 main 的旧代码代替在审实现：
+���̶��ύ�������� main �ľɴ����������ʵ�֣�
 
-- P0.1：`ed4850dc17601a9e8177c12c95d1281e072cccd4`。
-- P1-1：`778bad7c6db0f4412ce3c55bca0c24b78ad66905`，包含 P0.1 接口。
-- 规范：WRITEUP_INTEGRITY_SPEC.md、P1_ARTIFACT_STORAGE.md、MODEL_PROVIDERS.md。
+- P0.1��`ed4850dc17601a9e8177c12c95d1281e072cccd4`��
+- P1-1��`778bad7c6db0f4412ce3c55bca0c24b78ad66905`������ P0.1 �ӿڡ�
+- �淶��WRITEUP_INTEGRITY_SPEC.md��P1_ARTIFACT_STORAGE.md��MODEL_PROVIDERS.md��
 
-| 已核对对象 | 当前事实 | P1-2 设计决定 |
+| �Ѻ˶Զ��� | ��ǰ��ʵ | P1-2 ��ƾ��� |
 |---|---|---|
-| ToolProposal | proposal_id、可空 call_id、challenge_id、tool_name、arguments、scope、proposed_at；没有持久化状态或模型请求 ID | 增加 request_id、origin、不可变批准摘要；单独存储状态投影 |
-| ToolApproval | proposal_id、approving_user、approved、decided_at | 审批身份来自可信会话；关联确定的提案摘要，不能信任客户端提交的用户名 |
-| ToolStarted | proposal_id、executable/version、argv、cwd、环境变量名称列表、started_at | 加 execution_id、实际启动凭据、call_id、challenge_id；不能由 Agent 或普通 HTTP 客户端上报 |
-| ToolExecutionResult | 开始/完成 event_id、结束时间、exit_code、timed_out、两个输出 artifact_id 与哈希 | 加 outcome、termination_reason、输出完整性和 execution_id；允许真实未知值，禁止补造输出 |
-| EventType | 已有 tool_proposed/approved/rejected/started/finished；另有 command_started/finished、model_call | 保留旧类型，不改写历史；新工具路径只用 tool_*；增加取消、调度失败、失联及模型流式事件 |
-| events/event_heads | WAL；BEGIN IMMEDIATE；题目内 sequence 唯一；_append_event 在调用者事务追加与更新 head；触发器禁止更新/删除 | 生命周期状态、索引、幂等响应和事件必须同一事务提交；不得用多个 Store.append 拼接状态变更 |
-| ArtifactStore | ingest(BinaryIO, filename=...) 返回 IngestedArtifact；blob 先落盘、SHA-256 内容寻址；read_verified 重算哈希 | 捕获原始二进制输出，不经文本编码往返；完成前校验字节与大小 |
-| Store.add_artifact | 自有事务，返回 (Artifact, Event 或 None)；同题同哈希去重；新来源事件 actor=user | 保留上传接口；提取内部事务助手支持工具来源和原子完成，不能直接连调两次现有 public 方法后假称全局原子 |
-| 002_artifacts.sql | UNIQUE(challenge_id,sha256)、source_event_id UNIQUE、同题来源外键；Artifact 不可改 | 来源是第一次摄入；tool_finished 另作使用关联，不能将多个输出改指同一个 source_event_id |
-| ToolCall → proposals() | call_id 已保留，proposal_id 每次新生成 | 调用转换不是幂等持久化；以 request_id + call_id 去重，不能全局按 call_id 去重 |
-| recorded_complete | success/ProviderError.code/internal_error/cancelled；finally 写一条 model_call | 保留兼容；尚无“请求已开始”持久记录；审计写入异常可能覆盖原调用异常，需定义失败优先级 |
-| stream() | 无独立审计包装；SSE 文本/调用片段累积，遇 DONE 跳出；自然 EOF 也会 yield 最终 response | 缺少 DONE、异常 EOF、截断参数不得成为完整响应；必须加入显式终结判定 |
-| DisabledBroker | 空 registry；批准后仍拒绝执行 | 本轮及默认运行继续禁用，设计通过不等于执行许可 |
+| ToolProposal | proposal_id���ɿ� call_id��challenge_id��tool_name��arguments��scope��proposed_at��û�г־û�״̬��ģ������ ID | ���� request_id��origin�����ɱ���׼ժҪ�������洢״̬ͶӰ |
+| ToolApproval | proposal_id��approving_user��approved��decided_at | �����������Կ��ŻỰ������ȷ�����᰸ժҪ���������οͻ����ύ���û��� |
+| ToolStarted | proposal_id��executable/version��argv��cwd���������������б���started_at | �� execution_id��ʵ������ƾ�ݡ�call_id��challenge_id�������� Agent ����ͨ HTTP �ͻ����ϱ� |
+| ToolExecutionResult | ��ʼ/��� event_id������ʱ�䡢exit_code��timed_out��������� artifact_id ���ϣ | �� outcome��termination_reason����������Ժ� execution_id��������ʵδֵ֪����ֹ������� |
+| EventType | ���� tool_proposed/approved/rejected/started/finished������ command_started/finished��model_call | ���������ͣ�����д��ʷ���¹���·��ֻ�� tool_*������ȡ��������ʧ�ܡ�ʧ����ģ����ʽ�¼� |
+| events/event_heads | WAL��BEGIN IMMEDIATE����Ŀ�� sequence Ψһ��_append_event �ڵ���������׷������� head����������ֹ����/ɾ�� | ��������״̬���������ݵ���Ӧ���¼�����ͬһ�����ύ�������ö�� Store.append ƴ��״̬��� |
+| ArtifactStore | ingest(BinaryIO, filename=...) ���� IngestedArtifact��blob �����̡�SHA-256 ����Ѱַ��read_verified �����ϣ | ����ԭʼ����������������ı��������������ǰУ���ֽ����С |
+| Store.add_artifact | �������񣬷��� (Artifact, Event �� None)��ͬ��ͬ��ϣȥ�أ�����Դ�¼� actor=user | �����ϴ��ӿڣ���ȡ�ڲ���������֧�ֹ�����Դ��ԭ����ɣ�����ֱ�������������� public ������ٳ�ȫ��ԭ�� |
+| 002_artifacts.sql | UNIQUE(challenge_id,sha256)��source_event_id UNIQUE��ͬ����Դ�����Artifact ���ɸ� | ��Դ�ǵ�һ�����룻tool_finished ����ʹ�ù��������ܽ���������ָͬһ�� source_event_id |
+| ToolCall �� proposals() | call_id �ѱ�����proposal_id ÿ�������� | ����ת�������ݵȳ־û����� request_id + call_id ȥ�أ�����ȫ�ְ� call_id ȥ�� |
+| recorded_complete | success/ProviderError.code/internal_error/cancelled��finally дһ�� model_call | �������ݣ����ޡ������ѿ�ʼ���־ü�¼�����д���쳣���ܸ���ԭ�����쳣���趨��ʧ�����ȼ� |
+| stream() | �޶�����ư�װ��SSE �ı�/����Ƭ���ۻ����� DONE ��������Ȼ EOF Ҳ�� yield ���� response | ȱ�� DONE���쳣 EOF���ضϲ������ó�Ϊ������Ӧ�����������ʽ�ս��ж� |
+| DisabledBroker | �� registry����׼���Ծܾ�ִ�� | ���ּ�Ĭ�����м������ã����ͨ��������ִ������ |
 
-## 2. 核心不变量与标识
+## 2. ���Ĳ��������ʶ
 
-Event 是审计事实来源；状态表是可校验投影，不能替代事件。API 不接受 actor、event_id、sequence、occurred_at 或执行结果等可伪造字段。服务统一生成 UTC 录入时间；实际工具时间另存 captured_started_at/captured_ended_at，不能回填或重排历史 sequence。
+Event �������ʵ��Դ��״̬���ǿ�У��ͶӰ����������¼���API ������ actor��event_id��sequence��occurred_at ��ִ�н���ȿ�α���ֶΡ�����ͳһ���� UTC ¼��ʱ�䣻ʵ�ʹ���ʱ������ captured_started_at/captured_ended_at�����ܻ����������ʷ sequence��
 
-所有工具事件使用现有 Event envelope：event_id、challenge_id、sequence、occurred_at、actor、event_type、payload、artifact_ids、event_refs、previous_event_hash、event_hash。工具 payload 公共部分：
+���й����¼�ʹ������ Event envelope��event_id��challenge_id��sequence��occurred_at��actor��event_type��payload��artifact_ids��event_refs��previous_event_hash��event_hash������ payload �������֣�
 
 ```json
 {
@@ -44,34 +44,37 @@ Event 是审计事实来源；状态表是可校验投影，不能替代事件�
 }
 ```
 
-challenge_id、actor、timestamp(occurred_at)、event_id、artifact_ids 由 envelope 保留，不在 payload 重复。关联输出时同时保留 role 和 Artifact ID，不能依赖列表下标判断 stdout/stderr。没有证据时 artifact_ids=[]，不生成假证据 ID。
+challenge_id��actor��timestamp(occurred_at)��event_id��artifact_ids �� envelope ���������� payload �ظ����������ʱͬʱ���� role �� Artifact ID�����������б��±��ж� stdout/stderr��û��֤��ʱ artifact_ids=[]�������ɼ�֤�� ID��
 
-模型来源：request_id 与 call_id 必须同时非空；人工来源二者均为空并明确 origin=user。request_id 指向同题、完整成功的模型响应；call_id 在一次响应内唯一。proposal_id 始终由工作台生成，后续审批/执行沿它追溯 request_id/call_id。模型重复调用 ID 或不完整参数使整批转换失败，不产生部分提案。模型文本声称“已执行”只能是未验证 agent_message。
+ģ����Դ��request_id �� call_id ����ͬʱ�ǿգ��˹���Դ���߾�Ϊ�ղ���ȷ origin=user��request_id ָ��ͬ�⡢�����ɹ���ģ����Ӧ��call_id ��һ����Ӧ��Ψһ��proposal_id ʼ���ɹ���̨���ɣ���������/ִ������׷�� request_id/call_id��ģ���ظ����� ID ����������ʹ����ת��ʧ�ܣ������������᰸��ģ���ı����ơ���ִ�С�ֻ����δ��֤ agent_message��
 
-提案不可变：绑定 tool_name、registry_version、结构化 arguments、输入 Artifact ID/哈希、scope_snapshot、policy_version、超时/输出限额、环境变量名称 allowlist、sandbox_profile。用现有 canonical 规则生成 proposal_digest。环境变量值和凭证不得进入 argv、提案或批准摘要；工具需要凭证时只能引用安全存储句柄。摘要不是签名。
+�᰸���ɱ䣺�� tool_name��registry_version���ṹ�� arguments������ Artifact ID/��ϣ��scope_snapshot��policy_version����ʱ/����޶������������ allowlist��sandbox_profile�������� canonical �������� proposal_digest����������ֵ��ƾ֤���ý��� argv���᰸����׼ժҪ��������Ҫƾ֤ʱֻ�����ð�ȫ�洢�����ժҪ����ǩ����
 
-任何修改（包括作用域缩小、工具版本变化、输入哈希变化）均需新 proposal 和新审批。审批不能授权任意 shell；注册表只接受具名工具和参数 schema。网络默认关闭、禁止扫描/平台攻击/自动提交，XSWCTF 活动容器最多 3 个。工具允许与否需在提案、批准及调度前分别验证；后续策略变严时不得继续沿用旧授权。
+�κ��޸ģ�������������С�����߰汾�仯�������ϣ�仯�������� proposal ��������������������Ȩ���� shell��ע���ֻ���ܾ������ߺͲ��� schema������Ĭ�Ϲرա���ֹɨ��/ƽ̨����/�Զ��ύ��XSWCTF �������� 3 ��������������������᰸����׼������ǰ�ֱ���֤���������Ա���ʱ���ü������þ���Ȩ��
 
-## 3. 状态机和异常语义
+## 3. ״̬�����쳣����
 
 ```mermaid
 stateDiagram-v2
     [*] --> PROPOSED: tool_proposed
     PROPOSED --> APPROVED: tool_approved
     PROPOSED --> REJECTED: tool_rejected
-    APPROVED --> RUNNING: tool_started（真实启动已观测）
-    APPROVED --> CANCELLED: 启动前取消
-    APPROVED --> FAILED_TO_START: 调度确认未启动
-    APPROVED --> UNKNOWN: 已领取但启动情况无法确认
+    PROPOSED --> CANCELLED: tool_cancelled_before_start / user
+    APPROVED --> RUNNING: tool_started����ʵ�����ѹ۲⣩
+    APPROVED --> APPROVED: tool_cancel_requested / user������ȡ���ȴ�ȷ�ϣ�
+    APPROVED --> CANCELLED: tool_cancelled_before_start / δ��ȡ��ȷ��δspawn
+    APPROVED --> FAILED_TO_START: ����ȷ��δ����
+    APPROVED --> UNKNOWN: ����ȡ����������޷�ȷ��
     RUNNING --> SUCCEEDED: tool_finished / exit 0
-    RUNNING --> FAILED: tool_finished / 非零或已确认异常退出
-    RUNNING --> TIMED_OUT: tool_finished / 超时且终止已确认
-    RUNNING --> CANCELLED: tool_finished / 用户取消且终止已确认
-    RUNNING --> UNKNOWN: tool_interrupted / 进程或证据失联
-    UNKNOWN --> SUCCEEDED: 核验真实开始和结束记录后补录
-    UNKNOWN --> FAILED: 核验真实开始和结束记录后补录
-    UNKNOWN --> TIMED_OUT: 核验超时和终止记录后补录
-    UNKNOWN --> CANCELLED: 核验取消和终止记录后补录
+    RUNNING --> FAILED: tool_finished / �������ȷ���쳣�˳�
+    RUNNING --> TIMED_OUT: tool_finished / ��ʱ����ֹ��ȷ��
+    RUNNING --> RUNNING: tool_cancel_requested / user������ͼ��
+    RUNNING --> CANCELLED: tool_finished / tool��ȡ���������ֹ��ȷ�ϣ�
+    RUNNING --> UNKNOWN: tool_interrupted / ���̻�֤��ʧ��
+    UNKNOWN --> SUCCEEDED: ������ʵ��ʼ�ͽ�����¼��¼
+    UNKNOWN --> FAILED: ������ʵ��ʼ�ͽ�����¼��¼
+    UNKNOWN --> TIMED_OUT: ���鳬ʱ����ֹ��¼��¼
+    UNKNOWN --> CANCELLED: ����ȡ������ֹ��¼��¼
     REJECTED --> [*]
     FAILED_TO_START --> [*]
     SUCCEEDED --> [*]
@@ -80,235 +83,330 @@ stateDiagram-v2
     CANCELLED --> [*]
 ```
 
-说明：用户示意中的 APPROVED → APPROVED 是审批后的稳定状态，不是再次批准的状态变更；同一审批重试返回原事件。PROPOSED 可通过拒绝结束，避免另造“未审批取消”语义。
+˵����ͼ�е� APPROVED/RUNNING �Ի�����ȡ����ͼ�Ѽ�¼��״̬��δȷ�ϸı䣬�������ٴ���׼��������ͬһ�������Է���ԭ�¼���PROPOSED ��ȷ�����û�ȡ����ֱ��ת CANCELLED����ܾ�ת REJECTED �����ֶ������壻��α��������ִ�С�ȡ����Ψһ���վ������£�ͬʱԼ������״̬ͼ����4 API �� ��5 payload��
 
-| 状态/动作 | 前置条件 | 事件与结果 |
+| ״̬/���� | ǰ������ | �¼����� |
 |---|---|---|
-| 提案 | 注册工具、schema、scope 合法；模型来源已完整 | tool_proposed；PROPOSED |
-| 批准/拒绝 | 仅 PROPOSED，可信用户，摘要一致 | tool_approved 或 tool_rejected；一条决策 |
-| 领取执行 | APPROVED，无既有 execution；功能开关与策略允许 | 仅内部 dispatch claim，尚未声称实际启动；拒绝自动重领 |
-| 开始 | 已领取，隔离运行器证明真实启动，关联同一执行 ID | tool_started；RUNNING；审批和提案 event_refs |
-| 完成 | 存在匹配 tool_started；捕获进程已退出与输出状态 | tool_finished；终态及开始 event_refs |
-| 超时/取消 | 先记请求，再确认隔离进程已停止 | tool_cancel_requested（用户取消）或 tool_timeout_requested；状态仍 RUNNING，随后才 tool_finished |
-| 运行异常 | 能确认退出，保留失败输出 | FAILED，reason=runtime_error/signal 等；exit_code 可空但不得伪造 0 |
-| 失联/捕获失败 | 无法确认退出或完整落盘 | tool_interrupted；UNKNOWN；输出可保留已捕获前缀并标 partial，不伪装成功 |
+| �᰸ | ע�Ṥ�ߡ�schema��scope �Ϸ���ģ����Դ������ | tool_proposed��PROPOSED |
+| ��׼/�ܾ� | �� PROPOSED�������û���ժҪһ�� | tool_approved �� tool_rejected��һ������ |
+| ��ȡִ�� | APPROVED���޼��� execution�����ܿ������������ | ���ڲ� dispatch claim����δ����ʵ���������ܾ��Զ����� |
+| ��ʼ | ����ȡ������������֤����ʵ����������ͬһִ�� ID | tool_started��RUNNING���������᰸ event_refs |
+| ��� | ����ƥ�� tool_started������������˳������״̬ | tool_finished����̬����ʼ event_refs |
+| ȡ�� | �� ��3.1 ��׶δ������������û� | PROPOSED/APPROVED δ��ȡֱ��ȡ��������ȡֻ����ͼ��״̬ͼ�� HTTP ���� ��3.1 Ϊ׼ |
+| ��ʱ | �������������� deadline �������������� | tool_timeout_requested���� RUNNING����ʵ��ֹ�Ϳɿ������� tool_finished/TIMED_OUT |
+| �����쳣 | ��ȷ���˳�������ʧ����� | FAILED��reason=runtime_error/signal �ȣ�exit_code �ɿյ�����α�� 0 |
+| ʧ��/����ʧ�� | �޷�ȷ���˳����������� | tool_interrupted��UNKNOWN������ɱ����Ѳ���ǰ׺���� partial����αװ�ɹ� |
 
-STARTED 不是“打算启动”。调度前持久 claim（唯一 execution_id、owner、nonce、claimed_at、lease_deadline、dispatch_status=claimed）及私有运行器日志；拿到 OS/容器启动回执后才写 tool_started。启动调用抛错但不能确认“没有启动”时必须 UNKNOWN，不能 FAILED_TO_START。
+### 3.1 ȡ��״̬���¼��� HTTP ��ͳһ����R1��
 
-领取后、启动回执前取消：先追加取消意图，内部 cancel_requested 标志与取消事件同事务提交。运行器 spawn 前须在事务中 CAS 领取一次性启动许可，检查该标志；取消先胜出则许可被拒绝，运行器确认未 spawn 后进入 CANCELLED，使用 tool_cancelled_before_start，无 started/finished。启动许可先胜出则取消只能请求终止；不能立即声称 CANCELLED。失去回执或无法确定是否 spawn 时为 UNKNOWN，禁止重领/重试执行。许可并非已启动事实，也不消除 SQLite 与 OS 间的崩溃窗口。
+����ȡ��������ɿ����û�����actor=user��������ȷ���¼� actor=tool������ȷ�ϡ�δ����ȡ����actor=system��HTTP ������Ӧ������ִ����ʵ��
 
-这是 at-most-once dispatch 设计，不声称跨 SQLite/OS 具备 exactly-once。领取后服务崩溃，重启只检查运行器日志/隔离实例，不重新 spawn。租约过期是失联信号，不是再次执行许可。无法恢复则 UNKNOWN + limitation，用户需明确创建新提案后才能尝试新执行。
-
-恢复时有真实开始回执才能追加 tool_started，再追加真实 tool_finished；occurred_at 使用恢复录入时间，captured_* 标真实观测时间并带 recovered=true。若没有开始回执，不允许生成 tool_finished；UNKNOWN 可保持，不通过推测闭合历史。已完成的终态不可更改；新证据或更正用新 limitation/finding 事件，人工笔记不能改执行结果。
-
-## 4. API 与内部接口契约（建议，当前不开放）
-
-前缀 P=`/api/challenges/{challenge_id}/tool-proposals`。所有写请求需 Idempotency-Key（1–128 ASCII）、可信会话、JSON extra=forbid。请求摘要只用于本地去重，不包含 API Key。幂等键作用域为 challenge+principal+operation+key；request_digest 必须覆盖 HTTP method、规范化路由及其 challenge_id/proposal_id、canonical body。同键同目标和请求返回首次状态码/响应；同键跨目标或异 body 为 409 idempotency_conflict。拒绝请求不追加工具生命周期事件。跨题资源统一 404。
-
-| API / 调用者 | 请求 | 响应 | 对应状态 |
+| ����ʱ״̬/�ڲ��׶� | ͬ��������״̬ | �¼��� actor | HTTP / ȡ����Ӧ |
 |---|---|---|---|
-| POST P / 用户或可信 Agent 编排服务 | ProposalCreate（下述） | 201 ProposalView；重试原响应 | PROPOSED |
-| GET P?state=&cursor= / 用户 | 只读过滤、服务端游标 | 200 {items:ProposalView[], next_cursor} | 全部 |
-| GET P/{pid} / 用户 | 无 body | 200 ProposalView | 全部 |
-| POST P/{pid}/decision / 可信用户 | {decision:approve/reject, proposal_digest, reason_code?} | 200 DecisionView | APPROVED/REJECTED |
-| POST P/{pid}/dispatch / 可信用户 | {proposal_digest}，仅排队意图 | 202 ExecutionView；本轮及禁用时 503 execution_disabled，无执行事件 | APPROVED（内部 claim） |
-| POST P/{pid}/cancel / 可信用户 | {reason_code:user_cancelled} | 200 立即取消未领取提案；202 已领取或已运行取消意图，等待确认 | APPROVED/CANCELLED/RUNNING/UNKNOWN |
-| GET P/{pid}/execution / 用户 | 无 body | 200 ExecutionView；从未领取则 404 | RUNNING/终态/UNKNOWN |
-| 内部 broker.record_started / 隔离运行器 | StartedCapture | ExecutionView | RUNNING |
-| 内部 broker.finalize / 隔离运行器 | FinishedCapture + 两个受信输出句柄 | ExecutionView | SUCCEEDED/FAILED/TIMED_OUT/CANCELLED |
-| 内部 broker.interrupted / 恢复器 | reason_code + 实际捕获证据 | ExecutionView | UNKNOWN |
+| PROPOSED | ֱ�� CANCELLED���� execution/decision | tool_cancelled_before_start��user | 200��cancel_status=confirmed |
+| APPROVED��δ��ȡ | ֱ�� CANCELLED���� execution | tool_cancelled_before_start��user | 200��confirmed |
+| APPROVED������ȡ�������������� | CAS ���� cancel_requested����Ϻ������ɣ��� APPROVED����������ȷ��δ spawn �� CANCELLED | tool_cancel_requested��user����� tool_cancelled_before_start��system | ���� 202��pending��ȷ�Ϻ� GET ��ʾ confirmed |
+| APPROVED������������ȡ�á����� started ��ִ | ��¼��ͼ��Ҫ��ֹͣ�������� CANCELLED������ʵ������ִ�ȼ� RUNNING | tool_cancel_requested��user��ȷ��δ spawn �� tool_cancelled_before_start��system��ʵ�������� tool_started��tool���ٰ���ʵ��� tool_finished��tool | 202��pending���޷�ȷ���� tool_interrupted��system��UNKNOWN |
+| RUNNING | �� RUNNING��������ֹ��������ʵ��� | tool_cancel_requested��user��ȡ��ȷʵ������ֹ������ɿ��� tool_finished��tool��CANCELLED����Ȼ�˳��� SUCCEEDED/FAILED��֤�ݲ����� tool_interrupted��system��UNKNOWN | 202��pending |
+| UNKNOWN��������ȡ������ | �ܾ���ȡ����ֻ���ڲ��ָ��˶ԣ������ƿɿؽ��� | �� | 409 invalid_transition |
+| CANCELLED����������ͬ�û���ȡ����ͼ/ȡ����ɼ�¼ | ��������ȡ������������״̬��׷���¼� | �����¼� | ��ͬ���ط��״� 200/202����ͬ����ͬ�û�ͬ��Դͬ����Ҳ�ط��״���Ӧ |
+| REJECTED��FAILED_TO_START��SUCCEEDED��FAILED��TIMED_OUT ��������ȡ������ | ����ȡ�� | �� | 409 invalid_transition |
 
-内部接口没有 HTTP 路由，普通客户端/Provider 不能构造调用。运行器身份由本地私有通道/持有者 nonce 验证，不是请求体中的 actor 字符串。尚无可信会话时 decision/dispatch/cancel 必须禁用；本地回环可达不等于用户批准。Agent 可以提案但不能批准。
+���ȼ�����У������/��Դ���ݵ�ժҪ������ͬһȡ���������ط�ԭ HTTP ��Ӧ����ʹ��������Ȼ������ UNKNOWN������ѯ��ǰ״̬ʹ�� GET������ԭ 202 �ĳ� 200��û��ԭ����ʱ�Ű���ǰ״̬���ж�����ͬ�û����ø������˵�ȡ����������ͻ���� 409���ݵȼ���ͬ��Ŀ��/����ͬʼ�� 409��һ���᰸���һ����Ч�û�ȡ����ͼ��ֱ��ȡ���¼������⣩��������ȷ�Ͽ�����׷��һ�� before_start �� finished���������ٴ�׷�� user ��ͼ��
 
-ProposalCreate：{origin:user|model, tool_name, arguments, input_artifact_ids, requested_limits:{timeout_ms,max_output_bytes}, model_origin?:{request_id,call_id}}。scope/registry/policy/actor/timestamps 从服务端解析。模型来源请求必须匹配已保存的结构化调用，不能伪造 request_id 后提交不同参数。
+CancelView={proposal_id,challenge_id,call_id,execution_id?,cancel_status:pending|confirmed,accepted_state,event_id,artifact_ids:[]}��event_id ָ�״ν��ո�ȡ���������¼����첽ȷ�ϲ����д����Ӧ��GET ProposalView/ExecutionView ���������¼���״̬��PROPOSED/APPROVED ֱ��ȡ������ proposed/approved event����Ҫ�󲻴��ڵ� execution��
 
-ProposalView：{proposal_id,challenge_id,call_id,request_id,origin,tool_name,arguments,scope_snapshot,registry_version,policy_version,proposal_digest,state,proposed_at,proposed_event_id,decision_event_id?,execution_id?,latest_event_id,artifact_ids}。本地授权详情可见参数；通用日志和公开导出不得记录其完整内容。
+GET �� ProposalView/ExecutionView ���� cancellation:{cancel_operation_id,requested_event_id,confirmation_event_id?,status:pending|confirmed|not_effective} �� null��cancel_status ���״���Ӧ���գ�cancellation.status �ǵ�ǰͶӰ����Ȼ�˳���ȡ��δ��ЧΪ not_effective��UNKNOWN Ϊ pending�������ѽ�����ͼ˵��ȡ���ɹ���
 
-DecisionView：{proposal_id,challenge_id,call_id,decision,approving_user_id,decided_at,event_id,artifact_ids:[]}。审批 identity 不是客户端自由文本。
+STARTED ���ǡ�����������������ǰ�־� claim��Ψһ execution_id��owner��nonce��claimed_at��lease_deadline��dispatch_status=claimed����˽����������־���õ� OS/����������ִ���д tool_started�����������״�������ȷ�ϡ�û��������ʱ���� UNKNOWN������ FAILED_TO_START��
 
-ExecutionView：{execution_id,proposal_id,challenge_id,call_id,state,claimed_at,started_at?,ended_at?,started_event_id?,finished_event_id?,latest_event_id,artifact_ids,termination_reason?,exit_code?,timed_out,output_status}。只有 finished_event_id 非空且匹配 lifecycle 时才能显示“已结束”；UNKNOWN 不展示为完成。
+��ȡ��������ִǰȡ������׷��ȡ����ͼ���ڲ� cancel_requested ��־��ȡ���¼�ͬ�����ύ�������� spawn ǰ���������� CAS ��ȡһ�����������ɣ����ñ�־��ȡ����ʤ�������ɱ��ܾ���������ȷ��δ spawn ���� system ��¼���� CANCELLED��ʹ�� tool_cancelled_before_start���� started/finished������������ʤ����ȡ��ֻ��������ֹ�������������� CANCELLED��ʧȥ��ִ���޷�ȷ���Ƿ� spawn ʱΪ UNKNOWN����ֹ����/����ִ�С����ɲ�����������ʵ��Ҳ������ SQLite �� OS ��ı������ڡ�
 
-StartedCapture：{execution_id,claim_nonce,actual_executable,executable_version?,argv,cwd,environment_allowlist,captured_started_at,runtime_receipt_ref}。路径和 argv 必须来自实际运行器而不是模型原始文本；无版本信息留空，不能虚构。nonce 不进入事件/导出。
+���� at-most-once dispatch ��ƣ������ƿ� SQLite/OS �߱� exactly-once����ȡ��������������ֻ�����������־/����ʵ���������� spawn����Լ������ʧ���źţ������ٴ�ִ�����ɡ��޷��ָ��� UNKNOWN + limitation���û�����ȷ�������᰸����ܳ�����ִ�С�
 
-FinishedCapture：{execution_id,captured_ended_at,exit_code?,termination_reason:normal|nonzero_exit|signal|runtime_error|timeout|user_cancelled,termination_confirmed,stdout_capture,stderr_capture}。capture 为受信字节句柄、captured_bytes、complete、truncated、capture_error_code，不能接受客户端填好的 stdout 文本或 SHA-256。结束事件 ID、哈希与结果状态均由服务派生。
+�ָ�ʱ����ʵ��ʼ��ִ����׷�� tool_started����׷����ʵ tool_finished��occurred_at ʹ�ûָ�¼��ʱ�䣬captured_* ����ʵ�۲�ʱ�䲢�� recovered=true����û�п�ʼ��ִ������������ tool_finished��UNKNOWN �ɱ��֣���ͨ���Ʋ�պ���ʷ������ɵ���̬���ɸ��ģ���֤�ݻ�������� limitation/finding �¼����˹��ʼǲ��ܸ�ִ�н����
 
-错误统一 {error:{code,correlation_id}}，不回显参数/路径/输出/异常正文：400 请求格式；401/403 无可信用户/权限；404 不存在或跨题；409 invalid_transition/already_dispatched/digest_mismatch/idempotency_conflict/evidence_integrity_error；413 output_limit；422 schema/policy 校验；503 execution_disabled/audit_unavailable。业务拒绝不能伪造 tool_started/finished。
+### 3.2 ����ʧ������ֹ������ͳһ����R2/R3��
 
-重复决策：同键重放原响应；不同键、同决定/同摘要/同用户可返回既有决策且不新增事件；冲突决定 409。dispatch 不同键若已有 execution，返回 409 already_dispatched（可附本题现有 execution_id），不得另起执行。finalize 同捕获摘要重试返回既有结果，不同结果 409。拒绝、终态和 UNKNOWN 不能重新 dispatch。
+tool_dispatch_failed ֻ���������� claim���� tool_started������������ȷ�� confirmed_not_started=true��actor=system�����ΨһΪ FAILED_TO_START��claim ֮ǰ���ܽ���/���в�����/���Ծܾ������� execution ����¼������� APPROVED������ 503 �� 422��spawn �쳣���޷�֤��δ����Ϊ UNKNOWN/tool_interrupted������ started ��ִ���쳣ֻ�������н�������� FAILED_TO_START��
 
-## 5. 事件 payload 明细
+outcome ����ͬһ�����������ĵ���ʱ�䡢ʵ���˳�����ֹ�����ִ������������������¼����Ⱥ󸲸ǣ�
 
-下表所有 payload 都加第 2 节公共关联字段，artifact_ids/event_refs 存 envelope。工具实际事件 actor=tool，用户决策与取消 actor=user，恢复中断 actor=system，模型提案 actor=agent。timestamp 使用服务端 occurred_at。
+- deadline ǰ�˳�������ֹ������Чǰ��Ȼ�˳����� exit code Ϊ SUCCEEDED/FAILED���󵽵�ȡ��/��ʱ��ͼ�Ա�����
+- deadline ����ʱ�����������У���ʱ��ֹ��ȷ����֤�ݿɿ����� TIMED_OUT��
+- ȡ�������������ܡ�ִ����ֹ�����һ�ִ֤��ȡ��������ֹ���� CANCELLED��
+- ��ʱ��ȡ����������ʱ����ʵ����Ч����ֹ���Ϊ׼���޷����������ʱ��˳���֤�ݲ�ȫΪ UNKNOWN��������ѡһ��ԭ��
+- timed_out=true ���ҽ������� outcome=TIMED_OUT��termination_reason=timeout �����ڸ���̬����Ȼ�����˳����ܽ�������ȡ������ͼ� CANCELLED��
 
-| event_type | 附加 payload | artifact_ids / event_refs |
+���ͨ��Ψһ�ս�����/CAS �ύ���ٵ���ִֻ���ݵȷ��ػ� 409������д��̬���������ڶ��� tool_finished��
+
+## 4. API ���ڲ��ӿ���Լ�����飬��ǰ�����ţ�
+
+ǰ׺ P=`/api/challenges/{challenge_id}/tool-proposals`������д������ Idempotency-Key��1�C128 ASCII�������ŻỰ��JSON extra=forbid������ժҪֻ���ڱ���ȥ�أ������� API Key���ݵȼ�������Ϊ challenge+principal+operation+key��request_digest ���븲�� HTTP method���淶��·�ɼ��� challenge_id/proposal_id��canonical body��ͬ��ͬĿ������󷵻��״�״̬��/��Ӧ��ͬ����Ŀ����� body Ϊ 409 idempotency_conflict���ܾ�����׷�ӹ������������¼���������Դͳһ 404��
+
+| API / ������ | ���� | ��Ӧ | ��Ӧ״̬ |
+|---|---|---|---|
+| POST P / �û������ Agent ���ŷ��� | ProposalCreate�������� | 201 ProposalView������ԭ��Ӧ | PROPOSED |
+| GET P?state=&cursor= / �û� | ֻ�����ˡ�������α� | 200 {items:ProposalView[], next_cursor} | ȫ�� |
+| GET P/{pid} / �û� | �� body | 200 ProposalView | ȫ�� |
+| POST P/{pid}/decision / �����û� | {decision:approve/reject, proposal_digest, reason_code?} | 200 DecisionView | APPROVED/REJECTED |
+| POST P/{pid}/dispatch / �����û� | {proposal_digest}�����Ŷ���ͼ | 202 ExecutionView�����ּ�����ʱ 503 execution_disabled����ִ���¼� | APPROVED���ڲ� claim�� |
+| POST P/{pid}/cancel / �����û� | {reason_code:user_cancelled} | CancelView��200 ֱ��δ����ȡ����202 ��ȷ�ϣ�����ԭ��Ӧ���Ƿ�״̬ 409����������� ��3.1 | PROPOSED/APPROVED/RUNNING����̬�� UNKNOWN ֻ����ԭȡ�������ط� |
+| GET P/{pid}/execution / �û� | �� body | 200 ExecutionView����δ��ȡ�� 404 | RUNNING/��̬/UNKNOWN |
+| �ڲ� broker.record_started / ���������� | StartedCapture | ExecutionView | RUNNING |
+| �ڲ� broker.finalize / ���������� | FinishedCapture + �������������� | ExecutionView | SUCCEEDED/FAILED/TIMED_OUT/CANCELLED |
+| �ڲ� broker.interrupted / �ָ��� | reason_code + ʵ�ʲ���֤�� | ExecutionView | UNKNOWN |
+
+�ڲ��ӿ�û�� HTTP ·�ɣ���ͨ�ͻ���/Provider ���ܹ�����á������������ɱ���˽��ͨ��/������ nonce ��֤�������������е� actor �ַ��������޿��ŻỰʱ decision/dispatch/cancel ������ã����ػػ��ɴﲻ�����û���׼��Agent �����᰸��������׼��
+
+ProposalCreate��{origin:user|model, tool_name, arguments, input_artifact_ids, requested_limits:{timeout_ms,max_output_bytes}, model_origin?:{request_id,call_id}}��scope/registry/policy/actor/timestamps �ӷ���˽�����ģ����Դ�������ƥ���ѱ���Ľṹ�����ã�����α�� request_id ���ύ��ͬ������
+
+ProposalView��{proposal_id,challenge_id,call_id,request_id,origin,tool_name,arguments,scope_snapshot,registry_version,policy_version,proposal_digest,state,proposed_at,proposed_event_id,decision_event_id?,execution_id?,latest_event_id,artifact_ids}��������Ȩ����ɼ�������ͨ����־�͹����������ü�¼���������ݡ�
+
+DecisionView��{proposal_id,challenge_id,call_id,decision,approving_user_id,decided_at,event_id,artifact_ids:[]}������ identity ���ǿͻ��������ı���
+
+ExecutionView��{execution_id,proposal_id,challenge_id,call_id,state,claimed_at,started_at?,ended_at?,started_event_id?,finished_event_id?,latest_event_id,artifact_ids,termination_reason?,exit_code?,timed_out,output_status}��ֻ�� finished_event_id �ǿ���ƥ�� lifecycle ʱ������ʾ���ѽ�������UNKNOWN ��չʾΪ��ɡ�
+
+StartedCapture��{execution_id,claim_nonce,actual_executable,executable_version?,argv,cwd,environment_allowlist,captured_started_at,runtime_receipt_ref}��·���� argv ��������ʵ��������������ģ��ԭʼ�ı����ް汾��Ϣ���գ������鹹��nonce �������¼�/������
+
+FinishedCapture��{execution_id,captured_ended_at,exit_code?,termination_reason:normal|nonzero_exit|signal|runtime_error|timeout|user_cancelled,termination_confirmed,stdout_capture,stderr_capture}��capture Ϊ�����ֽھ����captured_bytes��complete��truncated��capture_error_code�����ܽ��ܿͻ�����õ� stdout �ı��� SHA-256�������¼� ID����ϣ����״̬���ɷ���������
+
+����ͳһ {error:{code,correlation_id}}�������Բ���/·��/���/�쳣���ģ�400 �����ʽ��401/403 �޿����û�/Ȩ�ޣ�404 �����ڻ���⣻409 invalid_transition/already_dispatched/digest_mismatch/idempotency_conflict/evidence_integrity_error��413 output_limit��422 schema/policy У�飻503 execution_disabled/audit_unavailable��ҵ��ܾ�����α�� tool_started/finished��
+
+�ظ����ߣ�ͬ���ط�ԭ��Ӧ����ͬ����ͬ����/ͬժҪ/ͬ�û��ɷ��ؼ��о����Ҳ������¼�����ͻ���� 409��dispatch ��ͬ�������� execution������ 409 already_dispatched���ɸ��������� execution_id������������ִ�С�finalize ͬ����ժҪ���Է��ؼ��н������ͬ��� 409���ܾ�����̬�� UNKNOWN �������� dispatch��
+
+## 5. �¼� payload ��ϸ
+
+�±����� payload ���ӵ� 2 �ڹ��������ֶΣ�artifact_ids/event_refs �� envelope������ʵ������/��� actor=tool���û�������ȡ������ actor=user������ʧ�ܡ�ʧ��/�ָ�����ȡ���δ����ȡ��ȷ�� actor=system��δ��ȡ��ֱ��ȡ�� actor=user��ģ���᰸ actor=agent��timestamp ʹ�÷���� occurred_at��
+
+| event_type | ���� payload | artifact_ids / event_refs |
 |---|---|---|
-| tool_proposed | tool_name、arguments、origin、registry_version、policy_version、scope_snapshot、input_artifact_hashes、limits、proposal_digest | 输入证据 / 完整模型响应终结事件（人工为 []） |
-| tool_approved / tool_rejected | approving_user_id、proposal_digest、decision、reason_code | [] / proposed event |
-| tool_started | actual_executable、executable_version?、argv、cwd、environment_allowlist（仅名称）、captured_started_at、runtime_instance_id、recovered | 输入证据 / proposed、approved events |
-| tool_cancel_requested / tool_timeout_requested | reason_code、requested_at | [] / started 或 approved event |
-| tool_dispatch_failed | reason_code、confirmed_not_started:true | [] / approved event；无 stdout 声称 |
-| tool_interrupted | reason_code、last_observed_at、process_status:running/exited/unknown、termination_confirmed:true/false/null、evidence_status:partial/missing/failed、capture_status | 已确认前缀证据 / 已存在的 lifecycle events；null 表示未知，不把证据失败误记为进程未退出 |
-| tool_output_captured | role、segment_sequence、capture_id、artifact_id、sha256、captured_bytes、complete、truncated、capture_reason | 本次捕获的 Artifact / 已有 started（若有）、首次摄入事件；actor=tool，恢复录入可为 system |
-| tool_finished | outcome、termination_reason、captured_ended_at、exit_code?、timed_out、termination_confirmed:true、stdout:{artifact_id,sha256,size,complete,truncated}、stderr 同结构、capture_policy_version、recovered | 去重的 stdout/stderr IDs / started、approval、输出首次摄入事件及取消/超时请求事件 |
+| tool_proposed | tool_name��arguments��origin��registry_version��policy_version��scope_snapshot��input_artifact_hashes��limits��proposal_digest | ����֤�� / ����ģ����Ӧ�ս��¼����˹�Ϊ []�� |
+| tool_approved / tool_rejected | approving_user_id��proposal_digest��decision��reason_code | [] / proposed event |
+| tool_started | actual_executable��executable_version?��argv��cwd��environment_allowlist�������ƣ���captured_started_at��runtime_instance_id��recovered | ����֤�� / proposed��approved events |
+| tool_cancel_requested | reason_code:user_cancelled��requested_at��requesting_user_id��dispatch_stage��cancel_operation_id | [] / approved �� started������ȡ/���в��У�actor=user�����һ����Ч��ͼ |
+| tool_timeout_requested | reason_code:deadline_exceeded��requested_at��runtime_monotonic_deadline | [] / started��actor=tool��deadline �����������в��� |
+| tool_cancelled_before_start | reason_code:user_cancelled��confirmed_not_started:true��cancel_operation_id��requesting_user_id��dispatch_stage | [] / PROPOSED ���� proposed��APPROVED ���� approved������ȡ������ cancel_requested��actor �� HTTP �ϸ� ��3.1 |
+| tool_dispatch_failed | reason_code��confirmed_not_started:true | [] / approved event���� stdout ���� |
+| tool_interrupted | reason_code��last_observed_at��process_status:running/exited/unknown��termination_confirmed:true/false/null��evidence_status:partial/missing/failed��capture_status | ��ȷ��ǰ׺֤�� / �Ѵ��ڵ� lifecycle events��null ��ʾδ֪������֤��ʧ�����Ϊ����δ�˳� |
+| tool_output_captured | role��segment_sequence��capture_id��artifact_id��sha256��captured_bytes��complete��truncated��capture_reason | ���β���� Artifact / ���� started�����У����״������¼���actor=tool���ָ�¼���Ϊ system |
+| tool_finished | outcome��termination_reason��captured_ended_at��exit_code?��timed_out��termination_confirmed:true��stdout:{artifact_id,sha256,size,complete,truncated}��stderr ͬ�ṹ��capture_policy_version��recovered | ȥ�ص� stdout/stderr IDs / started��approval������״������¼���ȡ��/��ʱ�����¼� |
 
-新增 tool_cancelled_before_start 用于尚未领取，或已领取但运行器明确确认未 spawn 的取消；前者 actor=user，后者确认事件 actor=system，payload.reason_code/confirmed_not_started，refs=approved 及已有取消请求，无 tool_finished。所有执行相关事件使用不可变 proposal 映射校验 challenge_id/call_id/request_id，不能在各阶段自由变更关联。
+tool_cancelled_before_start ���� PROPOSED ֱ��ȡ����APPROVED δ��ȡֱ��ȡ��������ȡȷ��δ spawn ��ȡ�������� tool_finished�����������������������ʵ tool_started ���� tool_finished �� tool_interrupted�������� before_start �ƹ��������ڡ�����ִ������¼�ʹ�ò��ɱ� proposal ӳ��У�� challenge_id/call_id/request_id�������ڸ��׶����ɱ��������
 
-成功仅指进程 exit 0 且退出/捕获证据已完整持久化，不表示解题或 Flag 正确。输出截断/捕获异常不得标完整；本设计将其置 UNKNOWN（即使已知 exit 0），保留实际 exit_code 并产生 limitation，等待证据恢复；不能靠重新运行补造旧输出。超时/取消已确认终止且两路捕获状态可靠时可终结，结果必须保留失败输出。
+�ɹ���ָ���� exit 0 ���˳�/����֤���������־û�������ʾ����� Flag ��ȷ������ض�/�����쳣���ñ�����������ƽ����� UNKNOWN����ʹ��֪ exit 0��������ʵ�� exit_code ������ limitation���ȴ�֤�ݻָ������ܿ��������в�����������ʱ/ȡ����ȷ����ֹ����·����״̬�ɿ�ʱ���սᣬ������뱣��ʧ�������
 
-## 6. SQLite 变更建议与原子边界
+## 6. SQLite ���������ԭ�ӱ߽�
 
-新增 `003_tool_lifecycle.sql`、`004_model_audit.sql`（建议名，不在本轮创建）。不改 001/002，不删除/更新历史 events 或 Artifact。保留 WAL、外键、recursive_triggers 和原 canonical 哈希。
+���� `003_tool_lifecycle.sql`��`004_model_audit.sql`�������������ڱ��ִ����������� 001/002����ɾ��/������ʷ events �� Artifact������ WAL�������recursive_triggers ��ԭ canonical ��ϣ��
 
-建议表与约束：
+�������Լ����
 
-| 表 | 主键/唯一键与关键列 | 约束 |
+| �� | ����/Ψһ����ؼ��� | Լ�� |
 |---|---|---|
-| tool_proposals | proposal_id PK；challenge_id、request_id?、call_id?、origin、immutable_body、proposal_digest、proposed_event_id | UNIQUE(challenge_id,proposal_id)；同题 proposed_event 联合 FK；模型 request/call 同时非空；人工同时空；部分唯一索引(challenge_id,request_id,call_id) WHERE request_id IS NOT NULL |
-| tool_decisions | proposal_id PK/FK；decision、principal_id、proposal_digest、decision_event_id | 同题联合 FK；每提案至多一条决策；decision CHECK；不可变/不可删除 |
-| tool_executions | execution_id PK；proposal_id UNIQUE、challenge_id、claim_nonce_hash、dispatch_status、claimed_at、lease_deadline | 同题 proposal 联合 FK；每提案至多一个执行；claim nonce 不以明文保存到审计 |
-| tool_transitions | transition_id PK；execution_id?、proposal_id、event_id UNIQUE、from_state、to_state | 同题事件/提案/执行联合 FK；每阶段唯一索引防双 start/finish；只追加 |
-| tool_state | proposal_id PK；state、revision、execution_id?、latest_event_id | 可变投影；CAS state/revision；只能通过受控事务推进；与 transitions 重放一致 |
-| tool_capture_segments | capture_id PK；execution_id、role、segment_sequence、artifact_id、captured_bytes/hash、complete、truncated、capture_event_id | 追加式前缀/恢复版本；UNIQUE(execution_id,role,segment_sequence)；同题 FK；旧前缀不覆盖，新版本可引用更完整 Artifact |
-| tool_output_links | (execution_id,role) PK；challenge_id、artifact_id、capture_size/hash、complete、truncated、finished_event_id | 仅最终完成事务写一次；role CHECK(stdout/stderr)；Artifact 和 event 同题联合 FK；允许两 role 指同一 Artifact；不可替换输出证据 |
-| request_dedup | (challenge_id,principal_id,operation,idempotency_key) PK；request_digest、http_status、response_metadata、event_id? | 与变更同事务；不得保存敏感原请求；不自动清除已执行操作去重信息 |
+| tool_proposals | proposal_id PK��challenge_id��request_id?��call_id?��origin��immutable_body��proposal_digest��proposed_event_id | UNIQUE(challenge_id,proposal_id)��ͬ�� proposed_event ���� FK��ģ�� request/call ͬʱ�ǿգ��˹�ͬʱ�գ�����Ψһ����(challenge_id,request_id,call_id) WHERE request_id IS NOT NULL |
+| tool_decisions | proposal_id PK/FK��decision��principal_id��proposal_digest��decision_event_id | ͬ������ FK��ÿ�᰸����һ�����ߣ�decision CHECK�����ɱ�/����ɾ�� |
+| tool_cancel_operations | proposal_id PK/FK��cancel_operation_id UNIQUE��principal_id��request_digest��accepted_event_id UNIQUE���״� HTTP/CancelView | ͬ�� FK��ÿ�᰸һ�� user ȡ��������ֱ��ȡ��/������ͼ���⣩�����ɱ䣻ȷ���¼��� transitions ����������д�״���Ӧ |
+| tool_executions | execution_id PK��proposal_id UNIQUE��challenge_id��claim_nonce_hash��dispatch_status��claimed_at��lease_deadline | ͬ�� proposal ���� FK��ÿ�᰸����һ��ִ�У�claim nonce �������ı��浽��� |
+| tool_transitions | transition_id PK��execution_id?��proposal_id��event_id UNIQUE��from_state��to_state | ͬ���¼�/�᰸/ִ������ FK��ÿ�׶�Ψһ������˫ start/finish��ֻ׷�� |
+| tool_state | proposal_id PK��state��revision��execution_id?��latest_event_id | �ɱ�ͶӰ��CAS state/revision��ֻ��ͨ���ܿ������ƽ����� transitions �ط�һ�� |
+| tool_capture_segments | capture_id PK��execution_id��role��segment_sequence��artifact_id��captured_bytes/hash��complete��truncated��capture_event_id | ׷��ʽǰ׺/�ָ��汾��UNIQUE(execution_id,role,segment_sequence)��ͬ�� FK����ǰ׺�����ǣ��°汾�����ø����� Artifact |
+| tool_output_links | (execution_id,role) PK��challenge_id��artifact_id��capture_size/hash��complete��truncated��finished_event_id | �������������дһ�Σ�role CHECK(stdout/stderr)��Artifact �� event ͬ������ FK�������� role ָͬһ Artifact�������滻���֤�� |
+| request_dedup | (challenge_id,principal_id,operation,idempotency_key) PK��request_digest��http_status��response_metadata��event_id? | ����ͬ���񣻲��ñ�������ԭ���󣻲��Զ������ִ�в���ȥ����Ϣ |
 
-为 Artifact 同题 FK 增加 `UNIQUE(challenge_id,artifact_id)` 索引；为 execution/proposal 关联设置对应联合唯一索引。模型来源还需 FK 到 model_requests(challenge_id,request_id)。原 Event JSON 字段不能靠普通 FK 检查：新增 tool_event_links(event_id PK,challenge_id,proposal_id,execution_id?,phase)，同题联合 FK，加 phase+proposal/execution 唯一索引；所有 lifecycle 事件必须同时建立索引。事件 payload 与关系列一致由事务服务验证，集成测试检测直写绕过，不能声称 SQLite 对任意 JSON 自动保证语义。
+Ϊ Artifact ͬ�� FK ���� `UNIQUE(challenge_id,artifact_id)` ������Ϊ execution/proposal �������ö�Ӧ����Ψһ������ģ����Դ���� FK �� model_requests(challenge_id,request_id)��ԭ Event JSON �ֶβ��ܿ���ͨ FK ��飺���� tool_event_links(event_id PK,challenge_id,proposal_id,execution_id?,phase)��ͬ������ FK���� phase+proposal/execution Ψһ���������� lifecycle �¼�����ͬʱ�����������¼� payload ���ϵ��һ�������������֤�����ɲ��Լ��ֱд�ƹ����������� SQLite ������ JSON �Զ���֤���塣
 
-数据库触发器（建议）：禁止提案、决策、转换、capture segments、输出关联、事件链接的 UPDATE/DELETE；禁止 REPLACE 绕过；领取必须已有 approve 决策且 tool_state=APPROVED；start 必须唯一 claim；finish 必须已有 started link；reject 禁止 execution；state 迁移边触发器阻断非法跳转。投影更新 CAS 匹配 from_state 与 revision（受影响行数必须为 1），与事件插入/头推进同事务。phase 唯一索引仅用于 proposed/decision/start/finish 等一次性阶段；cancel/timeout 请求用其操作幂等键去重，interrupted 按 occurrence_id 唯一，允许不同时间的多条真实失联观察。
+���ݿⴥ���������飩����ֹ�᰸�����ߡ�ת����capture segments������������¼����ӵ� UPDATE/DELETE����ֹ REPLACE �ƹ�����ȡ�������� approve ������ tool_state=APPROVED��start ����Ψһ claim��finish �������� started link��reject ��ֹ execution��state Ǩ�Ʊߴ�������ϷǷ���ת��ͶӰ���� CAS ƥ�� from_state �� revision����Ӱ����������Ϊ 1�������¼�����/ͷ�ƽ�ͬ����phase Ψһ���������� proposed/decision/start/finish ��һ���Խ׶Σ�ȡ������ ��3.1 ÿ�᰸Ψһ user ����Լ���� request_dedup��timeout ������������ݵȼ�ȥ�أ�interrupted �� occurrence_id Ψһ��������ͬʱ��Ķ�����ʵʧ���۲졣
 
-输出缺失时不能为满足 NOT NULL 而填假 ID。tool_output_links 仅在最终完成事务两 role 均已持久化、Artifact 大小/哈希匹配且引用同题后同时插入。UNKNOWN 仅保存 tool_capture_segments（可为零、一路或多版本），没有最终输出 links 和 finished_event。恢复选择经验证的完整捕获版本建立最终 links，不修改任何旧前缀。模型终结事件、幂等记录应采用同样一次性约束。
+���ȱʧʱ����Ϊ���� NOT NULL ����� ID��tool_output_links ����������������� role ���ѳ־û���Artifact ��С/��ϣƥ��������ͬ���ͬʱ���롣UNKNOWN ������ tool_capture_segments����Ϊ�㡢һ·���汾����û��������� links �� finished_event���ָ�ѡ����֤����������汾�������� links�����޸��κξ�ǰ׺��ģ���ս��¼����ݵȼ�¼Ӧ����ͬ��һ����Լ����
 
-tool_capture_segments.capture_event_id 专门引用 tool_output_captured，不能引用 artifact_added 作为本次捕获事实。新 capture 即使去重复用旧 Artifact，也追加一次独立捕获事件（同一 capture_id 重放除外）。段行与该事件同事务写入；其唯一约束是 execution_id+role+segment_sequence，不能以 proposal+phase 唯一阻止多段。最终事务引用所选 capture_id 与捕获事件；未持久化的 spool 只存在恢复日志，不能宣称是已提交 Artifact。
+tool_capture_segments.capture_event_id ר������ tool_output_captured���������� artifact_added ��Ϊ���β�����ʵ���� capture ��ʹȥ�ظ��þ� Artifact��Ҳ׷��һ�ζ��������¼���ͬһ capture_id �طų��⣩����������¼�ͬ����д�룻��ΨһԼ���� execution_id+role+segment_sequence�������� proposal+phase Ψһ��ֹ��Ρ���������������ѡ capture_id �벶���¼���δ�־û��� spool ֻ���ڻָ���־���������������ύ Artifact��
 
-事务模板：BEGIN IMMEDIATE → 校验当前状态/幂等/审批摘要/策略 → 预生成提案/执行/证据 ID → _append_event 插入事件并推进 event_heads → 插入引用该事件的不可变关联与转换 → 更新 tool_state → 保存去重响应 → COMMIT。先插事件再插有 FK 的关系行，无需依赖延迟外键；事件 JSON 的这些 ID 不形成反向 SQL FK，提交前由服务验证双向一致。内部 _append_event 扩展 event_refs 参数，并由事务服务校验引用归属；公共 append 不授予任意调用者写工具事件的权限。
+����ģ�壺BEGIN IMMEDIATE �� У�鵱ǰ״̬/�ݵ�/����ժҪ/���� �� Ԥ�����᰸/ִ��/֤�� ID �� _append_event �����¼����ƽ� event_heads �� �������ø��¼��Ĳ��ɱ������ת�� �� ���� tool_state �� ����ȥ����Ӧ �� COMMIT���Ȳ��¼��ٲ��� FK �Ĺ�ϵ�У����������ӳ�������¼� JSON ����Щ ID ���γɷ��� SQL FK���ύǰ�ɷ�����֤˫��һ�¡��ڲ� _append_event ��չ event_refs �����������������У�����ù��������� append ���������������д�����¼���Ȩ�ޡ�
 
-不能在事务中调用会自行 BEGIN 的 Store.add_artifact/append；拆出 `_add_artifact_in_tx(db,...,actor)` 内部助手，保持 public add_artifact 的原签名、返回和上传 user 来源行为。所有涉及 stdout/stderr 的新 Artifact 行、artifact_added 事件、输出 links、tool_finished 和状态必须在同一完成事务写入。事件发生顺序为新输出 artifact_added（0–2 条）→ tool_finished；全部推进同一 event_heads，无中间可见状态。
+�����������е��û����� BEGIN �� Store.add_artifact/append����� `_add_artifact_in_tx(db,...,actor)` �ڲ����֣����� public add_artifact ��ԭǩ�������غ��ϴ� user ��Դ��Ϊ�������漰 stdout/stderr ���� Artifact �С�artifact_added �¼������ links��tool_finished ��״̬������ͬһ�������д�롣�¼�����˳��Ϊ����� artifact_added��0�C2 ������ tool_finished��ȫ���ƽ�ͬһ event_heads�����м�ɼ�״̬��
 
-## 7. 原始 stdout/stderr 与 P1-1 集成
+## 7. ԭʼ stdout/stderr �� P1-1 ����
 
-隔离运行器独占二进制捕获通道；捕获来源绑定 execution_id 与私有 nonce，Agent/Provider 没有获取该通道的接口。stdout、stderr 分开保存，禁止 decode/re-encode、换行转换或在哈希前脱敏。Python 异常文本不冒充 stderr；捕获器自身错误只写 reason_code。
+������������ռ�����Ʋ���ͨ����������Դ�� execution_id ��˽�� nonce��Agent/Provider û�л�ȡ��ͨ���Ľӿڡ�stdout��stderr �ֿ����棬��ֹ decode/re-encode������ת�����ڹ�ϣǰ������Python �쳣�ı���ð�� stderr����������������ֻд reason_code��
 
-1. 调度前检查明确的本地敏感输出留存策略（raw retention、访问权限、限额、导出规则）。未配置策略拒绝 dispatch；不能执行后再决定是否允许保存秘密。
-2. 持续读取两路输出到受限 spool，独立算 SHA-256 与 byte count；必须同时消费，防单一路缓冲阻塞。输出限额包含两路总量，也记录各路大小。
-3. 达到输出限额请求终止、继续排空至安全终止边界；若只保留前缀，标 truncated=true/complete=false，哈希仅对应保存前缀，并记 observed_bytes（未知留空）与 captured_bytes，不声称是完整输出。P1-1 单 Artifact 50MB 上限仍需满足。
-4. 退出确认后，在与现有上传共享的进程级 artifact_lock 下，将捕获二进制句柄交 ArtifactStore.ingest(stream,filename='stdout.bin'/'stderr.bin')，再 read_verified；校验 hash/size 与捕获计数一致。相同字节复用 blob，不覆盖或重写元数据。
-5. 使用上一节事务助手查重与插入。新建 Artifact 的 source_event_id 仍是独立 artifact_added，actor=tool；已存在 Artifact 维持原 source_event_id（可能是 user 上传）。tool_output_links 与 tool_finished 说明本次输出使用关系，不能把去重后的旧来源误读成新执行来源。
-6. 两路都是空输出时 SHA-256 相同，只有一个 Artifact 和一个来源事件，但 stdout/stderr role 各有一条关联。tool_finished.artifact_ids 去重，不将两个角色强制成两个不同 ID。
-7. SQLite 完成失败整体回滚；真实进程不会因回滚而“未运行”。保留运行器私有日志和捕获 spool 以便恢复，不直接重新执行。文件已落盘而无元数据时可留下 orphan；只在确认无任何引用且无活跃 capture/恢复任务时清理，不能沿用上传的失败即删除逻辑误删恢复所需证据。
+1. ����ǰ�����ȷ�ı����������������ԣ�raw retention������Ȩ�ޡ��޶�������򣩡�δ���ò��Ծܾ� dispatch������ִ�к��پ����Ƿ������������ܡ�
+2. ������ȡ��·��������� spool�������� SHA-256 �� byte count������ͬʱ���ѣ�����һ·��������������޶������·������Ҳ��¼��·��С��
+3. �ﵽ����޶�������ֹ�������ſ�����ȫ��ֹ�߽磻��ֻ����ǰ׺���� truncated=true/complete=false����ϣ����Ӧ����ǰ׺������ observed_bytes��δ֪���գ��� captured_bytes�������������������P1-1 �� Artifact 50MB �����������㡣
+4. �˳�ȷ�Ϻ����������ϴ������Ľ��̼� artifact_lock �£�����������ƾ���� ArtifactStore.ingest(stream,filename='stdout.bin'/'stderr.bin')���� read_verified��У�� hash/size �벶�����һ�¡���ͬ�ֽڸ��� blob�������ǻ���дԪ���ݡ�
+5. ʹ����һ���������ֲ�������롣�½� Artifact �� source_event_id ���Ƕ��� artifact_added��actor=tool���Ѵ��� Artifact ά��ԭ source_event_id�������� user �ϴ�����tool_output_links �� tool_finished ˵���������ʹ�ù�ϵ�����ܰ�ȥ�غ�ľ���Դ�������ִ����Դ��
+6. ��·���ǿ����ʱ SHA-256 ��ͬ��ֻ��һ�� Artifact ��һ����Դ�¼����� stdout/stderr role ����һ��������tool_finished.artifact_ids ȥ�أ�����������ɫǿ�Ƴ�������ͬ ID��
+7. SQLite ���ʧ������ع�����ʵ���̲�����ع�����δ���С�������������˽����־�Ͳ��� spool �Ա�ָ�����ֱ������ִ�С��ļ������̶���Ԫ����ʱ������ orphan��ֻ��ȷ�����κ��������޻�Ծ capture/�ָ�����ʱ���������������ϴ���ʧ�ܼ�ɾ���߼���ɾ�ָ�����֤�ݡ�
 
-锁顺序固定 artifact_lock → SQLite 写事务；上传与工具终结共用协调器，避免与上传去重/清理竞态。延续 P1-1 单进程假设，多 worker 不支持。持有 SQLite 写锁期间禁止联网、等进程退出或写大文件；hash/ingest 在事务前完成，引用计数清理必须在同一协调锁范围。
+��˳��̶� artifact_lock �� SQLite д�����ϴ��빤���սṲ��Э�������������ϴ�ȥ��/������̬������ P1-1 �����̼��裬�� worker ��֧�֡����� SQLite д���ڼ��ֹ�������Ƚ����˳���д���ļ���hash/ingest ������ǰ��ɣ����ü�������������ͬһЭ������Χ��
 
-失败/nonzero/timeout/取消的输出一律同等摄入；无输出也需真实空字节捕获，不能缺失时补空文件。raw 证据只在受控本地存储，不默认回显浏览器/普通日志/公开 Writeup。导出是独立派生视图，记录 redaction_policy_version 和原 Artifact/event 引用；若生成脱敏 Artifact 则是新 digest、新事件、显式派生关系，原证据永不原地脱敏。没有可靠脱敏策略时禁止公开输出正文，仅展示 IDs/状态及缺口。
+ʧ��/nonzero/timeout/ȡ�������һ��ͬ�����룻�����Ҳ����ʵ���ֽڲ��񣬲���ȱʧʱ�����ļ���raw ֤��ֻ���ܿر��ش洢����Ĭ�ϻ��������/��ͨ��־/���� Writeup�������Ƕ���������ͼ����¼ redaction_policy_version ��ԭ Artifact/event ���ã����������� Artifact ������ digest�����¼�����ʽ������ϵ��ԭ֤������ԭ��������û�пɿ���������ʱ��ֹ����������ģ���չʾ IDs/״̬��ȱ�ڡ�
 
-## 8. 流式模型审计设计
+## 8. ��ʽģ�������ƣ�R4 Ψһ�淶��
 
-新增 recorded_stream 管理异步上下文，调用者必须 async with 生命周期管理器，退出时显式 aclose；不依赖 GC finalizer 或 async generator 被遗忘后仍及时审计。API 不对外开放该入口。本轮不改现有 Provider 代码。
+���� recorded_stream �����첽�����ģ������߱��� async with���˳�ʱ��ʽ aclose�������� GC finalizer������ֻ��ƣ������� API��ÿ�������� request_id������ challenge_id��provider_id��model_id��stream_requested��effective_mode��capabilities_snapshot ��ʵ����Ч limits��Ĭ����Ʋ���������/��Ӧ���ġ�Key�����߲�����˽���������ݡ�����ʼ�ȳ־û���ʧ���򲻷���ģ������
 
-每次调用生成 request_id，关联 provider_id、model_id、challenge_id、stream_requested、effective_mode（stream/buffered）、capabilities_snapshot；禁止请求正文、Key、响应正文与私有推理内容进入默认审计。模型请求开始先落盘；审计不可用就不发送模型请求。
+### 8.1 ���ղ���־û������
+
+�ڲ����ղ�ÿ�յ�һ�������� chunk�������� request �ڴ� 1 ��ʼ���������� chunk_sequence��һ��Э������֡���������ı���ṹ�� tool delta ����һ�Σ�ͬʱ������Ҳֻ��һ�Ρ����� token���ı����Ȼ� tool call ����������heartbeat���� finish_reason/usage �Ŀ���֡��DONE ���޹������ݵ�֡��ռ������ţ�˽����������������/������ƣ�Ҳ����Ϊ�������� chunk���յ����ݼ�����������ֻͳ���ѽ��� UI ����д������ݡ�
+
+�־û���ֻ���� **model_stream_progress** ���¼���**�������� chunk �� model_stream_chunk �¼����**���ڲ� chunk_sequence ����Ϊ���ݿ���������ÿ��������һ���������䣬����һ�β��ɱ� batch_id���������������� batch_id��
+
+�� payload �ֶΣ�batch_id��first_sequence��last_sequence��chunk_count��content_bytes_delta��tool_delta_count��first_received_at��last_received_at���������� request_id/provider_id/model_id��batch_first_sequence ֻ�� first_sequence ��ͬ�����������ݿ�� JSON ��ʽ�ֶ�ͳһ�� first_sequence����ֹ�����ֶ�/�������档
+
+��ʽ��1 <= first_sequence <= last_sequence��batch.chunk_count = last_sequence - first_sequence + 1������������Ų����ص������ÿ� gap �ϲ���content_bytes_delta �����������ı��� tool function name/argument �ַ���Ƭ�ε� UTF-8 �ֽ���֮�ͼ��㣨����Э�� framing��call id��˽����������tool_delta_count ���ṹ����������������������� chunk_count��һ֡���Ժ�������������
+
+flush �ڴﵽ max_batch_chunks ��ӱ����׿��� max_batch_wait_ms������ʱ�ӣ�ʱ������������д������/ȡ��/�쳣ǰ flush β�������ʧ������ֹͣ�������Ѳ��ر����Σ���ʱ����ͬ�����������޻�ѹ������ <= �������ݿ��� <= max_content_chunks����ֹ heartbeat ����д���ȵ����޽��¼�����ʼ/�ս�/gap �¼�������������
+
+��������Ĭ��/Ӳ���ޣ���ʵ�����ã���ʵ�����ܣ���max_batch_chunks=64/256��max_batch_wait_ms=250/1000��max_request_duration_ms=120000/300000��max_content_chunks=8192/65536��max_content_bytes=4MiB/16MiB����ֵ���������Ҳ�����Ӳ���ޣ��ͻ���ֻ����С���ﵽ��һ�����޶�ʱ�ر����Σ�response_status=limit_exceeded��complete=false���������᰸���������������޶�����յ��飬���������أ��ڴ滺������Ӳ���ơ���Чֵ��¼�������¼����ָ���ʹ���������ƶϾ�����
 
 ```mermaid
 stateDiagram-v2
-    [*] --> REQUESTED: model_request_started 持久化
-    REQUESTED --> STREAMING: model_stream_started
-    STREAMING --> STREAMING: model_stream_chunk（元数据）
-    REQUESTED --> TERMINAL: 鉴权/限流/配置/取消
-    STREAMING --> TERMINAL: 正常终结/异常/取消/断流
-    TERMINAL --> [*]: model_call 唯一终结事件
+    [*] --> REQUESTED: model_request_started �־û�
+    REQUESTED --> STREAMING: model_stream_started����ʵ��Ӧ��ʼ��
+    STREAMING --> STREAMING: �ڲ����ݿ��Ų����壨������¼���
+    STREAMING --> STREAMING: model_stream_progress�������������ύ��
+    STREAMING --> STREAMING: model_stream_audit_gap����֪ȱ�ڣ�
+    REQUESTED --> TERMINAL: ����ʧ�ܻ�ȡ�� / model_call
+    STREAMING --> TERMINAL: β��flush����ʽgap�� / model_call
+    TERMINAL --> [*]: Ψһ�սᣬ����ͬ�ڳɹ�
 ```
 
-| 阶段 | EventType / payload（加 request_id、provider_id、model_id） | 完整性规则 |
+### 8.2 �¼����ۼ�ͳ�ƺ�ȱ��
+
+����ģ���¼� actor=system��timestamp ʹ�� Event.occurred_at��artifact_ids Ĭ�� []��event_refs ��������ʼ���ѳ־û����Ȼ� gap �¼�����Ԫ���ݲ�֤����ʵ����ִ�С�
+
+| �׶� | event_type �븽�� payload | �ж� |
 |---|---|---|
-| 请求开始 | model_request_started / requested_at、effective_mode | 在模型 I/O 前提交 |
-| 响应开始 | model_stream_started / received_at、HTTP status class、protocol | 仅真实响应已被接收，不等于内容完整 |
-| 内容块 | model_stream_chunk / chunk_sequence、received_at、text_bytes_delta、tool_delta_count | 只记元数据，不存 token 文本/工具参数；序号递增；heartbeat 单独计数，不当内容 |
-| 正常结束 | model_call / response_status=success、complete=true、finish_reason、chunk_count、content_bytes、tool_call_count、ended_at | 必须协议终结、可接受 finish_reason、工具参数完整且校验通过 |
-| Provider 错误 | model_call / response_status=ProviderError.code、complete=false、ended_at、partial_received | 包括 timeout/rate_limited/authentication 等，错误正文不存 |
-| 用户取消/消费端提前退出 | model_call / response_status=cancelled、complete=false、cancel_origin=user|consumer、ended_at | 关闭上游流，不将已有部分文本提升完整 |
-| 网络中断/不完整 EOF | model_call / response_status=connection_interrupted、complete=false、ended_at | 缺 DONE/终结帧，不生成最终成功 response |
-| 内部异常 | model_call / response_status=internal_error、complete=false | 异常原样向上传递 |
-| 服务崩溃恢复 | model_call / response_status=interrupted、complete=false、recovered=true | 只能关闭审计请求，不能猜测网络侧完成 |
+| ����ʼ | model_request_started��requested_at��effective_mode��limits��capabilities_snapshot | I/O ǰͬ�������� |
+| ��Ӧ��ʼ | model_stream_started��received_at��HTTP status class��protocol | �������յ����ݻ�������Ӧ |
+| ������ | model_stream_progress����8.1 ���� payload | ÿ batch һ�¼������������������� |
+| ���ȱ�� | model_stream_audit_gap��gap_id��reason_code��first_sequence��last_sequence?��extent_known��detected_at | ��֪ȱ�ڱ����䣻δ֪β�� last_sequence=null��extent_known=false |
+| Ψһ�ս� | model_call��response_status��complete��protocol_complete��audit_complete��finish_reason?��requested_at��ended_at��partial_received��recovered�������ۼ�ͳ�� | �ɹ�����Э�������˫���� |
 
-建议 model_requests(request_id PK,challenge_id,provider_id,model_id,requested_at,mode,start_event_id UNIQUE) 不可变，model_stream_progress(request_id,chunk_sequence PK,event_id UNIQUE) 不可变，model_terminals(request_id PK,terminal_event_id UNIQUE,status,complete) 不可变；model_state 为可恢复投影。所有记录与各自事件同事务；终结表唯一约束保证成功/错误/取消竞态只有一个 winner。调用方收到最终完整响应必须晚于其成功终结审计提交。
+���� stream �սᣨ�ɹ�/ʧ��/ȡ��/�ָ���ʹ��ͬһ���ۼ��ֶΣ�
 
-Chat Completions SSE：必须观察 [DONE]，且已看到 stop/tool_calls 等支持的结束原因；finish_reason=length/content_filter 等记 incomplete（明确原因），不能以合法 JSON 自动推导完整。只有 DONE 没有 choice/finish_reason，同样 invalid_response。其他协议由 Adapter 提供等价终结证明，不硬套 SSE DONE。明确区分 httpx timeout、transport disconnect、正常 TCP EOF，Adapter 不得先把断流转成成功 ModelResponse 后再交给 wrapper 审计。
+statistics_scope=stream��buffered ����ʹ�� ��8.4 �� not_applicable�����ܻ���ͳ�ơ�
 
-工具调用片段按 choice/index 累积，最终校验 call_id 非空且唯一、tool_name 注册、arguments 为完整 JSON object 并通过参数 schema。只有 complete=true 的最终响应可以在新的事务里创建 ToolProposal，且按 request_id/call_id 去重。片段、截断 JSON、流式文本、任何私有推理均不得进入 tool_started/finished；审批与执行仍是分离流程。
+- received_chunk_count��ʵ���ѽ��յ����ݿ������������н���βʱΪ������terminal.chunk_count ��ȷΪ���ļ��ݱ���������ֵͬ��**�����������ѳ־û���**�������޷��ָ���������ʱ���߾�Ϊ null�������Գ־û��������
+- received_chunk_count_lower_bound���ܹ�֤�����ѽ��������½磻��֪ʱ���� received_chunk_count��δ֪ʱ�������ѳ־û���� last_sequence��
+- persisted_chunk_count���ɹ��ύ������Ĳ�����С�����ص�ʱ���� SUM(batch.chunk_count)��persisted_batch_count ���������������߲��ܻ��á�
+- persisted_ranges������鲢�ı����串�ǣ����� [[1,64],[66,80]]�����Ǵ�ʵ������¼�������ͼ�������̲�ȱ�š�
+- missing_ranges����֪�ѽ��յ�û�г־û����ȵı����䣻������� 80 �顢���������� [[65,65]]��û��֤�ݲ��ܶ���ȱʧ������ݡ�
+- unknown_tail��null �� {first_sequence, last_sequence:null, reason_code}��������ֻ֪������ 64��֮���������δ֪���� unknown_tail �� 65 �𣻲������� 65 ȷ���յ���gap �¼���ȷ extent_known=false��
+- received_content_bytes��received_tool_delta_count�������ղ�ͬ�ھ��ۼƣ��ָ���֪�� null��persisted_content_bytes��persisted_tool_delta_count���������ύ���ۼӡ���ʹ��ֵ��ͬҲ��ֱ�������
+- tool_call_count������У������չ��ߵ���������δ��ɵ���ӦΪ null�����ù���Ƭ�����ƶϡ�audit_gap_event_ids �������ύ gap��gap ״̬����ʡ�ԡ�
 
-默认不保存完整模型输入/响应；为了以后从 request_id 校验提案，需要在用户明确授权的情况下保存“最终结构化工具调用”到本地受限模型结果表/Artifact（非 stdout，source_kind=model_output），包含参数，视为敏感。未授权保存则不自动持久化模型提案，要求人工新提案且 origin=user，不伪称有原模型调用证据。
+������ʾ�������� 80������ 1�C64 �� 66�C80��Ϊ received=80��persisted=79��batch_count=2��missing=[[65,65]]��audit_complete=false��û�����ݵĺϷ�����received=persisted=0��ranges=[]��ֻ��Э������֤���ſ��� complete���յ� 3 ���ȡ����ȫ�� flush��audit_complete=true �� protocol_complete=false��complete=false�����ܰ������������Ӧ������
 
-若支持 allow_degrade 且无 streaming 能力，审计 effective_mode=buffered，不伪造 stream_started/chunk；终结仍一条 model_call。recorded_complete 后续复用同一审计协调器，防嵌套包装产生双终结事件。
+��������ȱ��ʱ������ next first_sequence �ƶ�ȱ���ѳ־û�����ͬ����д gap ��¼�� model_stream_audit_gap����֪��Χȡ�ѹ۲����֤�ݣ�δ֪��ʧβ��ֻ��¼ unknown_tail��gap �������鹹 chunk ���롣�����������ύ����ȱ�ſ��ύ������ʵ�������뱣�� gap����ƴ洢����ֹͣ���ѣ����ԡ���������д�롱�ƶ�������
 
-取消必须进入受界定时间的审计收尾区，并关闭底层 HTTP；保留 asyncio.CancelledError 原实例。原调用异常和审计异常并存时，原调用异常优先向上传递，另用不含敏感文本的诊断码报告 audit_write_failed；正常响应遇审计失败应抛审计错误且不返回已审计成功。SQLite 不可用时不承诺终结已持久化，已有 REQUESTED 记录用于恢复时追加 interrupted；整个系统断电/磁盘损毁仍可能丢失审计，不制造记录。
+�ɹ��ս�ǰ flush β�������㸲�Ǳ���ǡΪ [1,received_chunk_count]��0 ��Ӧ�ռ������� missing_ranges/unknown_tail���� audit_complete=true��protocol_complete=true ��Ҫ��Э���ս�Ϳɽ��� finish_reason����������У�飻complete = protocol_complete AND audit_complete��Э�������������ȱʧʱ response_status=audit_incomplete�������ؿ�ִ������ response��Э��ʧ��ά�� ProviderError.code/connection_interrupted/cancelled/internal_error/incomplete/limit_exceeded ��׼ȷԭ��ͬʱ������¼ audit_complete=false��
 
-## 9. 测试用例清单（待后续实现，非已通过报告）
+gap һ���ύ�ͱ������ɱ䣻����Ʋ���ͬһ�������º���÷�Χ�������ɹ�����ָ�ʱֻ׷�ӻָ�˵��/�սᣨ�������սᣩ�����øľ���̬���ƶ�δ�۲����ݡ�SQLite ȫ������ʱ�� gap Ҳ����д���ɣ��������� audit_write_failed���������� gap �ѳ־û����ָ��������� REQUESTED/����¼׷�� interrupted ��δ֪β����
 
-全部使用合成字节、FakeRunner、MockTransport 和临时数据库；真实工具默认禁用。不用比赛题目附件、真实目标或 Flag。
+### 8.3 SQLite Ψһ��������ݵ�
 
-| ID | 用例/故障注入 | 必须断言 |
+����ΪΨһ������ʽ��� schema ���飬����ԭ�ݸ��� chunk ������
+
+| �� | �������ֶ� | Լ�� |
 |---|---|---|
-| L01 | 用户/完整模型各提案 | 标识、摘要、同题来源；准确一条 proposed |
-| L02 | approve/reject；Agent 冒充用户 | 合法单决策；伪身份拒绝 |
-| L03 | 未批准/拒绝后 dispatch | 无 claim、start、finish，无真实执行 |
-| L04 | 并发重复 dispatch、不同幂等键 | 至多一个 claim/运行器调度；第二个不执行 |
-| L05 | 同键重试/异 body/重启重放 | 原响应、409、无新生命周期事件 |
-| L06 | 未开始 finish/双 start/双 finish | DB 和服务均阻断；相同完成重放原结果 |
-| L07 | exit0/nonzero/runtime_error/signal | outcome 正确；失败输出不丢；不改 solve 状态 |
-| L08 | timeout 后进程尚活/已停止 | 前者 UNKNOWN 或待终止，后者 TIMED_OUT，不能提前成功 |
-| L09 | 取消与启动/结束同时发生 | 唯一终结；先提交终结后取消为冲突或幂等返回，无双 finished |
-| L09b | claim 后、spawn 许可前后并发取消 | 取消先胜出禁止 spawn；许可先胜出等待实际终止；无回执 UNKNOWN |
-| L09c | 同题不同 proposal 使用同幂等键与相同 body | request_digest 含目标资源，409，不返回另一提案响应 |
-| L10 | claim 后崩溃、spawn 后 start 入库前崩溃 | 不重启执行；UNKNOWN；回执恢复或可见缺口 |
-| L11 | start 后崩溃/捕获器断连 | interrupted；不补造 exit/stdout |
-| L12 | scope/tool/input/hash/limits 改变 | 旧摘要审批失效，必须新提案 |
-| L13 | 同 call_id 不同 request/同请求重复 call_id | 前者可区分，后者拒绝；转换重试不新增 |
-| L14 | 跨题 artifact/proposal/event | 404/约束失败，零部分提交 |
-| A13 | 二进制、非 UTF8、CRLF、NUL、空输出 | 保存字节=捕获字节=SHA256；无编码往返 |
-| A14 | 两路相同/等同旧附件/跨题相同 | 正确 dedup；source 不改，两 role 都关联本次 finish |
-| A15 | 输出超限、捕获失败、缺一路 | prefix 明示、不补空，不声称完整或成功 |
-| A16 | blob 篡改、大小不符、DB 完成失败 | 不提交 finished；保留恢复证据与失败缺口 |
-| A16b | UNKNOWN 前缀保存后恢复完整输出 | 追加 capture 版本；不更新旧证据；最终 links 仅写一次 |
-| A16c | 已知退出但输出保存失败 | process_status=exited、termination_confirmed=true；evidence_status=failed，不能误记仍在运行 |
-| A17 | 完成事务中途 SQL 故障 | Artifact/事件/head/state/幂等全部回滚 |
-| A18 | 上传并发同 digest + 工具完成失败 | 共享证据不误删；锁顺序无死锁 |
-| A19 | 敏感合成 sentinel | 默认日志/错误/导出无泄漏；raw 哈希不因脱敏改变 |
-| S01 | 正常 SSE 多 chunk + DONE + finish_reason | 请求开始/响应开始/块/唯一 success terminal |
-| S02 | 首帧前 ProviderError/RuntimeError/取消 | 正确失败状态，无 success，异常实例原样 |
-| S03 | 中途 timeout/断连/自然 EOF 无 DONE | complete=false，部分内容不自动生成提案 |
-| S04 | DONE 无 finish_reason、length、截断 arguments | incomplete/invalid_response，禁止提案 |
-| S05 | tool delta 分片/重复 ID/多 choice | 仅完整合法单一选择可转；歧义拒绝 |
-| S06 | async with 提前 break/aclose、重复 cancel | 关闭 HTTP；一次 cancelled terminal |
-| S07 | 终结审计失败、双终结竞态、重启恢复 | 不返回已审计成功；唯一终结；可见 audit gap |
-| S08 | buffered 降级与 complete 嵌套 | 不伪造 stream chunk，不产生双 model_call |
-| C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
-| C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
-| C03 | W07/W08 联动、模型声称成功但无运行记录 | 模型输出不是操作事实；证据缺口不补造 |
-| C04 | registry 为空、execution_enabled=false、容器上限 | 无执行；禁止 scan/自动 submit；计数仅未来隔离管理器授权 |
+| model_requests | request_id PK��challenge_id��provider_id��model_id��requested_at��effective_mode��limits��start_event_id UNIQUE | UNIQUE(challenge_id,request_id)����ʼ�¼�ͬ�� FK�����ɱ� |
+| model_stream_progress | batch_id PK��challenge_id��request_id��first_sequence��last_sequence��chunk_count��content_bytes_delta��tool_delta_count��first_received_at��last_received_at��batch_digest��event_id UNIQUE | UNIQUE(request_id,first_sequence)��CHECK first>=1��last>=first��chunk_count=last-first+1�������Ǹ���ͬ�� request/event FK�����ɱ� |
+| model_stream_gaps | gap_id PK��challenge_id��request_id��first_sequence��last_sequence?��extent_known��reason_code��event_id UNIQUE | UNIQUE(request_id,first_sequence)����֪���� last>=first��δ֪β�� last IS NULL��ͬ�� request/event FK�����ɱ� |
+| model_terminals | request_id PK��challenge_id��terminal_event_id UNIQUE��status��complete��protocol_complete��audit_complete���ۼ��ֶ� | ͬ�� request/event FK������״̬����һ���ս᣻���ɱ� |
+| model_state | request_id PK��revision��phase��last_committed_sequence��observed_lower_bound | �ɱ�ͶӰ��CAS��������¼�/��ϵ��ͬ���񣻲��ܴ���δ�۲���Ͻ� |
 
-## 10. 兼容性、风险和待审核决定
+���¼������С�model_state �� event_heads ͬһ BEGIN IMMEDIATE �����Ȳ� Event ����������overlap �� INSERT ������/ͬ�����ѯ��ϣ�ͬ������� old.first <= new.last AND old.last >= new.first ����ͻ����ֻ���� UNIQUE(first_sequence)�������������� gap �����䲹�������ս�ǰ��ʵ����/ȱ��������У���ۼ�����֮���ֹ����/gap��request ������Ļָ�˵����Ϊ limitation������ڶ��ս��۸��Ѷ��Ḳ�ǡ�
 
-P0.1 call_id 可空继续可读；新增 request_id 只要求新模型来源提案，旧记录标 legacy/unlinked，绝不猜测关联。旧 ToolStarted/Result 保留读取 DTO；新版本使用 ToolLifecycleV1 payload 与扩展结果，不能给旧记录补造 execution_id/输出。command_* 只显示历史类型，不自动认定为 broker 记录。solve/writeup 状态不与工具 exit code 联动。
+gap ����������������� gap �ص���δ֪β�����޽��϶˼�飩����ͬ gap_id ���ظ���Χ�ܾ������Ա���ʹ��ԭ gap_id��terminal Լ�� chunk_count IS received_chunk_count����������ͬΪ null������֪ received ����С�ڳ־û���� last_sequence��persisted_chunk_count �������䲢����С��complete=true ����ͬʱ protocol_complete/audit_complete=true��response_status=success ������ complete=true����Щ�����ۼ�У����ͬ�������/������ʵ�֣���ǰֻ�涨��ƣ������� SQL ����֤��
 
-P1-1 public add_artifact/ingest/下载/去重契约不变。新增内部事务助手是后续实现修改点，需单独审核；当前 branch 不修改源代码。migration 003/004 只添加表/索引/新记录约束，旧数据不回填生命周期，事件哈希链 canonical 不变；升级失败回滚并停止，不静默部分迁移。
+batch_digest ���� request_id��batch_id�������ȫ����Ԫ���ݣ������������ģ���������ͬ batch_id/ͬ digest ����ԭ event_id�����ظ�׷���¼����ۼƣ�ͬ ID ���غ� 409����ͬ ID ͬ first �������ص�Ҳ�ܾ����������������¼��ύ�ɹ���Ӧ��ʧ��� DB ��أ��������������gap_id ͬ���ݵȣ��ս�Ψһ request_id �� CAS ��ֹ�ɹ�/ȡ��˫ winner��schema ������ chunk_sequence PK��Ҳ���� batch_first_sequence ���гɵڶ�������
 
-必须经独立审核的决定：
+### 8.4 Э���սᡢ�����빤�߽߱�
 
-1. 采用 at-most-once dispatch + UNKNOWN，接受崩溃后需人工复核的可用性代价；不承诺 exactly-once。
-2. 允许原始敏感输出仅在明确的本地留存策略下保存；默认公开导出只含安全元数据，脱敏模块未完成前禁止正文公开。
-3. 建立可信本地用户审批机制后才允许 decision/dispatch；现有无认证回环服务不能安全地证明批准身份。
-4. stdout/stderr 来源事件与执行引用分离，保持 P1-1 的同题内容去重；是否接受未完成执行的恢复 spool 留存时限需定策略。
-5. 默认 chunk 逐个记录仅元数据可能造成 SQLite 写放大；必须设置请求时长、块数/最小块合并限额。若后续改批次，应明确 batch 范围和遗漏语义，不能悄悄丢块。
-6. 提案参数/argv/cwd/目标本身也可能敏感，必须本地存储与日志隔离；是否将其进一步加密留给本地密钥管理方案，不能以 base64 当加密。
-7. 完整流式协议兼容：不同提供商 finish_reason/终结信号能力需显式声明；不支持时降级或拒绝，不能猜成功。
-8. 原始输出内容寻址不证明运行器可信；私有通道认证、隔离日志与 capture provenance 是后续安全边界。拥有本机文件系统权限者仍可重写全链，需外部检查点才能强化。
-9. P1-1 的单进程锁、只读 best-effort 和 TOCTOU 限制仍在。后续隔离执行不可仅依赖路径 resolve；多进程/远程运行器属于另一轮设计。
+Chat Completions SSE ����۲� [DONE] ���ѿ���֧�ֵ� stop/tool_calls �� finish_reason��ֻ�� DONE���� finish_reason Ϊ invalid_response��length/content_filter ��Ϊ incomplete������ TCP EOF �����Զ��ɹ���ȱ�ս�֡Ϊ connection_interrupted������Э���� Adapter �ṩ��ʽ�ȼ�֤������Ӳ�� SSE DONE��
 
-审核完成后再将明确边界的实现任务下发 DeepSeek：先做契约/迁移/合成运行器/审计测试，保持 DisabledBroker 默认；真实工具接入、sandbox 和网络策略另开任务。本轮不下发或启动实现任务。
+����Ƭ�ΰ� choice/index �ۻ������� call_id �ǿ�Ψһ��ע�Ṥ�ߡ����� JSON object ����� schema ��ͨ����ֻ�� complete=true ������Ӧ�ſ�����һ����ת���᰸������ request_id/call_id ȥ�ء�˽��������Ƭ�κ�ģ���ı������� started/finished��
 
-## 11. 独立设计复核记录
+Ĭ�ϲ�������/��Ӧ���ģ��Զ��־û�ģ���᰸���û���ȷ��Ȩ�������սṹ�����õ����ޱ���ģ�ͽ����/Artifact��source_kind=model_output������ stdout����δ��Ȩ��ֻ���˹����᰸ origin=user����α����ԭģ�͵���֤�ݡ�
 
-独立审查代理进行了只读复核，未修改代码或调用真实模型/工具。首次发现并在本文修正：UNKNOWN 前缀与最终输出不可变关联冲突；进程终止状态与证据状态混淆；claim 后启动前取消竞态；幂等摘要未绑定目标；事件 FK 插入顺序；重复中断不能套用一次性 phase 唯一约束。已补充 L09b/L09c/A16b/A16c 验收点。
+buffered ��������ͬһ�������Э���������� stream_started/progress�������ɼٵ� chunk_sequence��stream ר���ۼ��ֶ�ͳһ null��statistics_scope=not_applicable����ʵ stream ��ͳ���ֶβŰ� ��8.2�������δ������ʽ���Ϊ��0 ������������recorded_complete ��Ƕ������˫ model_call��
 
-二次复核结论：上述六项在设计层闭合，无阻止提交设计 PR 的剩余 blocker。其非阻塞建议也已采纳：定义 tool_output_captured，明确 capture_event_id 关联，保证复用同内容 Artifact 时仍保留本次捕获来源。
+ȡ��/���Ѷ���ǰ�˳����н� flush���ر� HTTP����¼ cancelled ������ԭ CancelledError ʵ����ProviderError ���� code������ Exception Ϊ internal_error��ԭ�����쳣������쳣����ʱԭ�쳣���ȣ��������������ı��� audit_write_failed��������Ӧ�����ʧ�ܲ���������Ƴɹ�����������ս����ڶԵ����߱�¶����������Ӧ�������ָ�����δ֪����ʹ�� null/�½�/unknown_tail���������ս�֤����
 
-该复核是架构文档审核，不是实现验收或运行安全批准；仍需用户指定审核人确认后再下发实现任务。
+## 9. ���������嵥��������ʵ�֣�����ͨ�����棩
+
+ȫ��ʹ�úϳ��ֽڡ�FakeRunner��MockTransport ����ʱ���ݿ⣻��ʵ����Ĭ�Ͻ��á����ñ�����Ŀ��������ʵĿ��� Flag��
+
+| ID | ����/����ע�� | ������� |
+|---|---|---|
+| L01 | �û�/����ģ�͸��᰸ | ��ʶ��ժҪ��ͬ����Դ��׼ȷһ�� proposed |
+| L02 | approve/reject��Agent ð���û� | �Ϸ������ߣ�α���ݾܾ� |
+| L03 | δ��׼/�ܾ��� dispatch | �� claim��start��finish������ʵִ�� |
+| L04 | �����ظ� dispatch����ͬ�ݵȼ� | ����һ�� claim/���������ȣ��ڶ�����ִ�� |
+| L05 | ͬ������/�� body/�����ط� | ԭ��Ӧ��409���������������¼� |
+| L06 | δ��ʼ finish/˫ start/˫ finish | DB �ͷ������ϣ���ͬ����ط�ԭ��� |
+| L07 | exit0/nonzero/runtime_error/signal | outcome ��ȷ��ʧ��������������� solve ״̬ |
+| L08 | timeout ������л�/��ֹͣ | ǰ�� UNKNOWN �����ֹ������ TIMED_OUT��������ǰ�ɹ� |
+| L09 | ȡ��������/����ͬʱ���� | Ψһ�ս᣻���ύ�ս��ȡ��Ϊ��ͻ���ݵȷ��أ���˫ finished |
+| L09b | claim ��spawn ����ǰ�󲢷�ȡ�� | ȡ����ʤ����ֹ spawn��������ʤ���ȴ�ʵ����ֹ���޻�ִ UNKNOWN |
+| L09c | ͬ�ⲻͬ proposal ʹ��ͬ�ݵȼ�����ͬ body | request_digest ��Ŀ����Դ��409����������һ�᰸��Ӧ |
+| L10 | claim �������spawn �� start ���ǰ���� | ������ִ�У�UNKNOWN����ִ�ָ���ɼ�ȱ�� |
+| L11 | start �����/���������� | interrupted�������� exit/stdout |
+| L12 | scope/tool/input/hash/limits �ı� | ��ժҪ����ʧЧ���������᰸ |
+| L13 | ͬ call_id ��ͬ request/ͬ�����ظ� call_id | ǰ�߿����֣����߾ܾ���ת�����Բ����� |
+| L14 | ���� artifact/proposal/event | 404/Լ��ʧ�ܣ��㲿���ύ |
+| A13 | �����ơ��� UTF8��CRLF��NUL������� | �����ֽ�=�����ֽ�=SHA256���ޱ������� |
+| A14 | ��·��ͬ/��ͬ�ɸ���/������ͬ | ��ȷ dedup��source ���ģ��� role ���������� finish |
+| A15 | ������ޡ�����ʧ�ܡ�ȱһ· | prefix ��ʾ�������գ�������������ɹ� |
+| A16 | blob �۸ġ���С������DB ���ʧ�� | ���ύ finished�������ָ�֤����ʧ��ȱ�� |
+| A16b | UNKNOWN ǰ׺�����ָ�������� | ׷�� capture �汾�������¾�֤�ݣ����� links ��дһ�� |
+| A16c | ��֪�˳����������ʧ�� | process_status=exited��termination_confirmed=true��evidence_status=failed����������������� |
+| A17 | ���������; SQL ���� | Artifact/�¼�/head/state/�ݵ�ȫ���ع� |
+| A18 | �ϴ�����ͬ digest + �������ʧ�� | ����֤�ݲ���ɾ����˳�������� |
+| A19 | ���кϳ� sentinel | Ĭ����־/����/������й©��raw ��ϣ���������ı� |
+| S01 | ���� SSE�������Ρ���������/250ms ˢ�¡�β�� flush��DONE/finish_reason | ֻ�� model_stream_progress ���¼����������估 batch_id Ψһ��terminal received=persisted=chunk_count��complete ��Э������ƶ����� |
+| S02 | ��֡ǰ ProviderError/RuntimeError/ȡ�� | received_chunk_count=0��persisted=0��ranges=[]��һ����ȷʧ���սᣬ�� success���쳣ʵ��ԭ�� |
+| S03 | ��; timeout/����/EOF �� DONE | flush ��֪β�����ۼƽ���/�־ø��Ǽ� gap ׼ȷ��complete=false���������᰸ |
+| S04 | DONE �� finish_reason��length���ض� arguments��ʱ��/chunk/�ֽ����ޱ߽� | incomplete/invalid_response �� limit_exceeded����ʹ����ȫҲ�� complete���ر����Σ����᰸ |
+| S05 | tool delta ��Ƭ�������ظ� ID���� choice��heartbeat/finish ����֡ | chunk ����������֡һ�Σ��ǰ� token/������������֡��ռ�ţ������������ȱ�ڲſ�ת�᰸ |
+| S06 | async with ��ǰ break/aclose���ظ� cancel��ȡ��ʱβ�� flush | �ر� HTTP�����ط����ظ�������һ�� cancelled terminal��flush ʧ����ʽ gap |
+| S07 | ���ύӦ��ʧ��batch ID �ط�/���غɡ��ص�/ȱ�š�д��ʧ�ܡ�����δ֪β����˫�սᾺ̬ | Ψһ PK/����/����ժҪԼ������ʽ�н� gap ��δ֪β����received δ֪���ɲ£�����������Ƴɹ���Ψһ�ս� |
+| S08 | buffered ������complete Ƕ������� | ��α�� progress/chunk ��ţ�stream ͳ�� not_applicable����˫ model_call������������Э��֤����������ͳ���ж� |
+| C01 | 001/002 �������� call_id=null����ʷ�¼� | ��ϣ���䡢����/ȥ��/ԭ������ͨ�� |
+| C02 | SQL UPDATE/DELETE/REPLACE��״̬/JSON ���� | ������/ҵ����֤�ܾ����طż�ⲻһ�� |
+| C03 | W07/W08 ������ģ�����Ƴɹ��������м�¼ | ģ��������ǲ�����ʵ��֤��ȱ�ڲ����� |
+| C04 | registry Ϊ�ա�execution_enabled=false���������� | ��ִ�У���ֹ scan/�Զ� submit��������δ�������������Ȩ |
+
+## 10. �����ԡ����պʹ���˾���
+
+P0.1 call_id �ɿռ����ɶ������� request_id ֻҪ����ģ����Դ�᰸���ɼ�¼�� legacy/unlinked�������²�������� ToolStarted/Result ������ȡ DTO���°汾ʹ�� ToolLifecycleV1 payload ����չ��������ܸ��ɼ�¼���� execution_id/�����command_* ֻ��ʾ��ʷ���ͣ����Զ��϶�Ϊ broker ��¼��solve/writeup ״̬���빤�� exit code ������
+
+�ݸ���ݣ�����δ����Ǩ�ƣ��ɲݸ�� model_stream_chunk �־û��¼��� (request_id,chunk_sequence) ����������Ϊʵ����Լ������������ʵ�ֹ��ɲݸ壬�������������ʽǨ�Ʋ��������¼����Ϳɶ���������д��ʷΪ���λ����±�ͬʱ�������ݡ�
+
+P1-1 public add_artifact/ingest/����/ȥ����Լ���䡣�����ڲ����������Ǻ���ʵ���޸ĵ㣬�赥����ˣ���ǰ branch ���޸�Դ���롣migration 003/004 ֻ���ӱ�/����/�¼�¼Լ���������ݲ������������ڣ��¼���ϣ�� canonical ���䣻����ʧ�ܻع���ֹͣ������Ĭ����Ǩ�ơ�
+
+���뾭������˵ľ�����
+
+1. ���� at-most-once dispatch + UNKNOWN�����ܱ��������˹����˵Ŀ����Դ��ۣ�����ŵ exactly-once��
+2. ����ԭʼ�������������ȷ�ı�����������±��棻Ĭ�Ϲ�������ֻ����ȫԪ���ݣ�����ģ��δ���ǰ��ֹ���Ĺ�����
+3. �������ű����û��������ƺ������ decision/dispatch����������֤�ػ������ܰ�ȫ��֤����׼���ݡ�
+4. stdout/stderr ��Դ�¼���ִ�����÷��룬���� P1-1 ��ͬ������ȥ�أ��Ƿ����δ���ִ�еĻָ� spool ����ʱ���趨���ԡ�
+5. ��ʽ�����ͳһΪ ��8 ���н����Σ��� chunk �־û������������������������С/�ȴ�/�����޶��밴������������֤���������ζ�ʡ��ȱ�ڡ�
+6. �᰸����/argv/cwd/Ŀ�걾��Ҳ�������У����뱾�ش洢����־���룻�Ƿ����һ����������������Կ���������������� base64 �����ܡ�
+7. ������ʽЭ����ݣ���ͬ�ṩ�� finish_reason/�ս��ź���������ʽ��������֧��ʱ������ܾ������ܲ³ɹ���
+8. ԭʼ�������Ѱַ��֤�����������ţ�˽��ͨ����֤��������־�� capture provenance �Ǻ�����ȫ�߽硣ӵ�б����ļ�ϵͳȨ�����Կ���дȫ�������ⲿ�������ǿ����
+9. P1-1 �ĵ���������ֻ�� best-effort �� TOCTOU �������ڡ���������ִ�в��ɽ�����·�� resolve�������/Զ��������������һ����ơ�
+
+�����ɺ��ٽ���ȷ�߽��ʵ�������·� DeepSeek��������Լ/Ǩ��/�ϳ�������/��Ʋ��ԣ����� DisabledBroker Ĭ�ϣ���ʵ���߽��롢sandbox ����������������񡣱��ֲ��·�������ʵ������
+
+## 11. ������Ƹ��˼�¼
+
+����������������ֻ�����ˣ�δ�޸Ĵ���������ʵģ��/���ߡ��״η��ֲ��ڱ���������UNKNOWN ǰ׺������������ɱ������ͻ��������ֹ״̬��֤��״̬������claim ������ǰȡ����̬���ݵ�ժҪδ��Ŀ�ꣻ�¼� FK ����˳���ظ��жϲ�������һ���� phase ΨһԼ�����Ѳ��� L09b/L09c/A16b/A16c ���յ㡣
+
+���θ��˽��ۣ�������������Ʋ�պϣ�����ֹ�ύ��� PR ��ʣ�� blocker�������������Ҳ�Ѳ��ɣ����� tool_output_captured����ȷ capture_event_id ��������֤����ͬ���� Artifact ʱ�Ա������β�����Դ��
+
+�ø����Ǽܹ��ĵ���ˣ�����ʵ�����ջ����а�ȫ��׼�������û�ָ�������ȷ�Ϻ����·�ʵ������
+
 
