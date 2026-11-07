@@ -485,7 +485,13 @@ HMAC 的固定 domain 字面量分别是 27 bytes 的 CTF/model-stream/content/v
 
 R_i 嵌套深度硬上限 8（含 object/array 容器，root 深度 1），投影各对象键数硬上限 16；现有封闭 R_i schema 深度不超过 6，C/M 分别 9/16 键，不能扩展任意深对象以绕过字段表。tool.function.arguments 是字符串，不递归解析其 JSON 正文来增加投影结构。每批最多 256 条规范化记录、单记录最多 1048576 bytes，且受更紧的 2097152 bytes 批总量约束，不允许先分配 256 个最大记录后才检查总量。tool.index/choice_index 是标识，不可据其数值预分配相应长度的数组；累积器用受条目预算限制的映射。整数 token 也须增量限长：SAFE_MAX 范围最多 16 个十进制数字，索引最多 10 个；超长或增量值已超界即拒绝，不先构造任意精度大整数再比较。
 
-所有进入投影的上游响应流还必须有**解析前入口护栏**，否则即使投影有界也可能先被 JSON/SSE 缓冲耗尽资源：max_sse_event_bytes 默认/硬上限 1048576；max_upstream_response_body_bytes 默认 33554432、硬上限 67108864；单次上游读取最多 32768 bytes。\n\n`max_upstream_response_body_bytes` 只计本次 Provider HTTP 响应的 body octets：从 HTTP 客户端交给响应流读取器的 body 字节开始计数，HTTP status line、响应 headers 不计；HTTP transfer framing（例如 chunked 编码分块长度/分隔符）已由 HTTP 客户端移除，不计；为避免压缩解码放大绕过，流式请求必须发送 Accept-Encoding: identity，并拒绝非 identity 的 Content-Encoding，不对压缩体做自动解压。该 body 预算对该次请求收到的响应体全程累计，包含 SSE 字段、JSON 内容、CRLF/LF、空白、注释/heartbeat、DONE、未知/重复字段以及不进入 HMAC 投影的内容；非 2xx 响应体如被读取也计入。\n\n`max_sse_event_bytes` 单独限制每个 SSE event block 的原始 body 字节：从该 block 第一个字节起，计至结束该 event 的空行分隔符（包含该分隔符）；event 内的字段名、冒号、空格、data、注释、行结束符均计入。连续注释/heartbeat 行按其所在 event block 计入；仅有尚未形成完整 event 的尾部也受同一上限约束，不能等空行到达后才检查。响应 body 总预算与单 event 预算同时生效。\n\n重定向不自动跟随；收到 3xx 时按协议/Provider 错误处理，不消费重定向目标。超限不会触发自动重试或重连；显式发起的新上游调用必须创建新 request_id，并独立应用其预算，不能续接或分摊原请求预算。源 JSON 也限制容器深度 8、每对象键数 16，使用相同 root=1 定义；不在未知字段里构建任意深对象。SSE 结束后也不能自动无限消费。解码器必须逐 token 校验深度、键、数组数量及字符串长度，不能先 json.loads 一个无界帧再检查；仅有 httpx timeout 不满足本契约。允许至多一个固定 32768-byte 传输读取块，不允许将超限块整体追加到应用缓冲。入口预算与投影预算是不同计数，不改变公开内容统计或私有推理排除规则。
+所有进入投影的上游响应流还必须有**解析前入口护栏**，否则即使投影有界也可能先被 JSON/SSE 缓冲耗尽资源：max_sse_event_bytes 默认/硬上限 1048576；max_upstream_response_body_bytes 默认 33554432、硬上限 67108864；单次上游读取最多 32768 bytes。
+
+`max_upstream_response_body_bytes` 只计本次 Provider HTTP 响应的 body octets：从 HTTP 客户端交给响应流读取器的 body 字节开始计数，HTTP status line、响应 headers 不计；HTTP transfer framing（例如 chunked 编码分块长度/分隔符）已由 HTTP 客户端移除，不计；为避免压缩解码放大绕过，流式请求必须发送 Accept-Encoding: identity，并拒绝非 identity 的 Content-Encoding，不对压缩体做自动解压。该 body 预算对该次请求收到的响应体全程累计，包含 SSE 字段、JSON 内容、CRLF/LF、空白、注释/heartbeat、DONE、未知/重复字段以及不进入 HMAC 投影的内容；非 2xx 响应体如被读取也计入。
+
+`max_sse_event_bytes` 单独限制每个 SSE event block 的原始 body 字节：从该 block 第一个字节起，计至结束该 event 的空行分隔符（包含该分隔符）；event 内的字段名、冒号、空格、data、注释、行结束符均计入。连续注释/heartbeat 行按其所在 event block 计入；仅有尚未形成完整 event 的尾部也受同一上限约束，不能等空行到达后才检查。响应 body 总预算与单 event 预算同时生效。
+
+重定向不自动跟随；收到 3xx 时按协议/Provider 错误处理，不消费重定向目标。超限不会触发自动重试或重连；显式发起的新上游调用必须创建新 request_id，并独立应用其预算，不能续接或分摊原请求预算。源 JSON 也限制容器深度 8、每对象键数 16，使用相同 root=1 定义；不在未知字段里构建任意深对象。SSE 结束后也不能自动无限消费。解码器必须逐 token 校验深度、键、数组数量及字符串长度，不能先 json.loads 一个无界帧再检查；仅有 httpx timeout 不满足本契约。允许至多一个固定 32768-byte 传输读取块，不允许将超限块整体追加到应用缓冲。入口预算与投影预算是不同计数，不改变公开内容统计或私有推理排除规则。
 
 选择依据：标识符预留 128/256 bytes，避免不计入内容统计的 ID 无限增长；1 choice 与单选择协议一致；16 增量/帧、4096 增量/请求限制对象/空项放大；256KiB 单字符串允许较长合成脚本参数，同时每调用累积受限；1MiB 记录、2MiB 批、16MiB 默认/32MiB 硬请求投影约束内存和 MAC 工作量。入口 1MiB 帧/64MiB 上游响应体再封住解析前负担。这些是保守设计预算，未做真实 Provider 性能或兼容性实测。各约束**同时生效**，达到某个字段上限并不保证其带转义的整个帧/批也能通过。
 
@@ -520,7 +526,7 @@ M.content_fingerprint 总是 64 个 hex 字节，预算阶段可用“长度为 
 | 入口/字符串解析中途终止，无法确认整个帧是否应计为内容块 | 只保留已证明下界；unknown_tail 从下一未确定序号起，extent_known=false；不编造超限帧的完整内容/数量 | received_chunk_count/chunk_count=null（若确实存在未分类尾部）；已知 missing_ranges 与未知尾部可同时存在 |
 | 收尾审计本身不可写 | 返回/报告 audit_write_failed，恢复仍按已有记录追加 interrupted/gap；不能谎称 terminal/gap 已提交 | 历史批不变，不返回 success，不生成新批 |
 
-limit_code 固定分类：string_utf8_bytes、choices_per_frame、tool_deltas_per_frame、tool_deltas_per_request、projected_record_bytes、projected_batch_bytes、projected_request_bytes、wire_event_bytes、upstream_response_body_bytes、projection_structure。事件仅存码/计数/服务端限额，不能记录 offending 值/正文。类型/词法错误仍用既有 invalid_json/integer_type 等拒绝；资源界限先触发时以已知 limit_code 安全结束，不继续读完内容去探测其他错误。
+limit_code 固定分类：string_utf8_bytes、choices_per_frame、tool_deltas_per_frame、tool_deltas_per_request、projected_record_bytes、projected_batch_bytes、projected_request_bytes、sse_event_bytes、upstream_response_body_bytes、projection_structure。事件仅存码/计数/服务端限额，不能记录 offending 值/正文。类型/词法错误仍用既有 invalid_json/integer_type 等拒绝；资源界限先触发时以已知 limit_code 安全结束，不继续读完内容去探测其他错误。
 
 超限收尾事务将已知 gap/未知尾部记录、唯一 model_call、终结投影和 event_heads 一起提交；不包含超限批的 progress、tag、内容 Artifact 或模型结构化调用。保留此前**已完整提交**的合法批作为部分审计，不回滚/重写它们；“无部分成功”指没有当前超限批/截断批被写成成功，不能误解为删除真实历史。此路径覆盖 §8.1/§8.2/§8.4 的一般尾批 flush：资源拒绝一律丢弃当前批，不借 finally flush 将其落库。
 
