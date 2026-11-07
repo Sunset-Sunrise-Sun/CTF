@@ -1,0 +1,28 @@
+# CTF Agent Workbench
+
+A local-first CTF workbench for Misc, Crypto, Pwn, Web, and Reverse.
+
+**Non-negotiable rule:** Writeups are generated from an append-only record of real actions and evidence captured as the work happens. They are never reconstructed from a final flag or desired outcome.
+
+## First release
+- Challenge workspace and attachment integrity checks.
+- Category-aware analysis playbooks.
+- Human-approved, scoped tool execution.
+- Append-only event and evidence recording.
+- Writeup generation with event references and explicit gaps.
+- Local-first storage; no challenge secrets or artifacts committed to this public repository.
+
+## Project documents
+- Architecture and evidence model: docs/ARCHITECTURE.md
+- Implementation plan and agent handoff: docs/WORK_PLAN.md
+
+## Development roles
+- Codex: scaffold and integrate the application framework.
+- DeepSeek: implement feature modules against documented contracts.
+- Reviewer: independent code, security, evidence-integrity, and acceptance review.
+
+## Scope and safety
+Authorized CTF challenge environments only. Do not attack the competition platform, scan networks, brute-force flag submissions, disrupt other players, or exceed the configured container limit. Competition rules and organizer clarifications take precedence over this software.
+
+## Data handling
+This repository is public. Commit application code, documentation, tests, and synthetic fixtures only. Keep challenge attachments, flags, tokens, raw logs, target URLs/IPs, and generated writeups out of Git.
