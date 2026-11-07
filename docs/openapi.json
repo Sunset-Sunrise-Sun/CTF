@@ -1,0 +1,571 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CTF Agent Workbench",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges": {
+      "get": {
+        "summary": "Challenges",
+        "operationId": "challenges_api_challenges_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Challenge"
+                  },
+                  "type": "array",
+                  "title": "Response Challenges Api Challenges Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create",
+        "operationId": "create_api_challenges_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChallengeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Challenge"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/events": {
+      "get": {
+        "summary": "Events",
+        "operationId": "events_api_challenges__cid__events_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  },
+                  "title": "Response Events Api Challenges  Cid  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/notes": {
+      "post": {
+        "summary": "Note",
+        "operationId": "note_api_challenges__cid__notes_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/integrity": {
+      "get": {
+        "summary": "Integrity",
+        "operationId": "integrity_api_challenges__cid__integrity_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "summary": "Tools",
+        "operationId": "tools_api_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Challenge": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "Misc",
+              "Crypto",
+              "Pwn",
+              "Web",
+              "Reverse"
+            ],
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "warmup",
+              "practice",
+              "competition"
+            ],
+            "title": "Source",
+            "default": "practice"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ],
+            "title": "Status",
+            "default": "active"
+          },
+          "solve_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "candidate",
+              "verified"
+            ],
+            "title": "Solve Status",
+            "default": "unknown"
+          },
+          "writeup_status": {
+            "type": "string",
+            "enum": [
+              "not_generated",
+              "incomplete",
+              "review_required",
+              "complete"
+            ],
+            "title": "Writeup Status",
+            "default": "not_generated"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "category"
+        ],
+        "title": "Challenge"
+      },
+      "ChallengeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "Misc",
+              "Crypto",
+              "Pwn",
+              "Web",
+              "Reverse"
+            ],
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "warmup",
+              "practice",
+              "competition"
+            ],
+            "title": "Source",
+            "default": "practice"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "category"
+        ],
+        "title": "ChallengeCreate"
+      },
+      "Event": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sequence"
+          },
+          "occurred_at": {
+            "type": "string",
+            "title": "Occurred At"
+          },
+          "actor": {
+            "type": "string",
+            "enum": [
+              "user",
+              "agent",
+              "tool",
+              "system"
+            ],
+            "title": "Actor"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "note",
+              "agent_message",
+              "hypothesis",
+              "plan",
+              "tool_proposed",
+              "tool_approved",
+              "tool_rejected",
+              "tool_started",
+              "tool_finished",
+              "command_started",
+              "command_finished",
+              "artifact_added",
+              "finding",
+              "verification",
+              "limitation",
+              "model_call"
+            ],
+            "title": "Event Type"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "artifact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Artifact Ids"
+          },
+          "event_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Event Refs"
+          },
+          "previous_event_hash": {
+            "type": "string",
+            "title": "Previous Event Hash"
+          },
+          "event_hash": {
+            "type": "string",
+            "title": "Event Hash",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "challenge_id",
+          "sequence",
+          "actor",
+          "event_type",
+          "payload",
+          "previous_event_hash"
+        ],
+        "title": "Event"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NoteCreate": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "retrospective": {
+            "type": "boolean",
+            "title": "Retrospective",
+            "default": false
+          },
+          "correction_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Of"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "NoteCreate"
+      },
+      "Scope": {
+        "properties": {
+          "network_enabled": {
+            "type": "boolean",
+            "title": "Network Enabled",
+            "default": false
+          },
+          "allowed_targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Targets"
+          },
+          "profile": {
+            "type": "string",
+            "const": "XSWCTF",
+            "title": "Profile",
+            "default": "XSWCTF"
+          },
+          "max_active_containers": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Max Active Containers",
+            "default": 3
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Scope"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

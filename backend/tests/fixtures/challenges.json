@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Synthetic Misc",
+    "category": "Misc",
+    "description": "Generated placeholder; no competition material."
+  },
+  {
+    "name": "Synthetic Crypto",
+    "category": "Crypto",
+    "description": "Generated placeholder; no competition material."
+  },
+  {
+    "name": "Synthetic Pwn",
+    "category": "Pwn",
+    "description": "Generated placeholder; no competition material."
+  },
+  {
+    "name": "Synthetic Web",
+    "category": "Web",
+    "description": "Generated placeholder; no competition material."
+  },
+  {
+    "name": "Synthetic Reverse",
+    "category": "Reverse",
+    "description": "Generated placeholder; no competition material."
+  }
+]
