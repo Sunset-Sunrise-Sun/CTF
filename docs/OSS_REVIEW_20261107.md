@@ -11,7 +11,7 @@ Recommended reference split:
 
 ## Scope reviewed
 
-Static GitHub source review of default branches and selected source files. No repository was cloned, installed, or executed locally in this review. Findings describe source-level design, not independently verified runtime behavior.
+Static GitHub source review and local ZIP review of the two uploaded repositories. ZIP integrity, dependency/configuration files, source patterns, selected tests, CLI smoke tests, and compile checks were inspected. No upstream project was installed into the global Python environment. Test commands were run from extracted audit copies under /mnt/data. No public target was contacted and no real challenge was attacked.
 
 Repositories:
 - https://github.com/Agonionce/Agoni_ctf
@@ -22,8 +22,7 @@ Repositories:
 
 Repository metadata observed:
 - Public Python repository; default branch main.
-- GitHub reports Apache-2.0.
-- Repository was created 2026-09-22 and pushed 2026-09-22 at review time.
+- GitHub reports Apache-2.0; the uploaded ZIP includes the Apache-2.0 LICENSE file.
 - README describes a governed, evidence-driven agent, local workbench, policy/approval, artifacts, checkpointing, domain skills, and completion reports.
 
 Useful source areas:
@@ -33,22 +32,30 @@ Useful source areas:
 - `agent/completion/collector.py`, `agent/completion/report.py`, `agent/completion/writeup.py`: read-only completion collection and deterministic report/writeup draft.
 - `tests/unit/test_r86_completion_pipeline.py`, `tests/integration/test_r86_local_completion_pipeline.py`: completion pipeline tests and fake-local integration demonstration.
 
-Important limitations:
+Static findings:
 - README explicitly lists Pwn Runtime, Reverse Runtime, Crypto Runtime, and Misc Runtime on the roadmap.
 - The inspected Pwn/Reverse/Crypto/Misc runtime classes are structure-only: they initialize domain metadata and phases; they are not working category-specific exploit/analysis engines.
 - README says the R5 Web execution path is restricted to a challenge-declared loopback origin. This is not a ready-made remote CTF service connector.
 - README explicitly states application-level policy/workspace controls are not an operating-system sandbox.
-- The Writeup generator is evidence-bound and does not infer extra solution steps. However, its report model is a completion projection over persisted run/intelligence state, experiments, evidence, and artifacts; we still need to verify command-level provenance, append-only integrity, and missing-evidence behavior against our stricter requirements.
-- The artifact store inspected records path/creator/time/source-step/type but does not itself provide content-addressed SHA-256 immutability.
+- The Bash tool invokes `bash -c`; the central CommandPolicy classifies commands and routes them to approval or denial. This is materially better than an unguarded shell wrapper, but still needs adversarial bypass tests before production reuse.
+- The Python tool launches a workspace-resolved script in a host subprocess with a restricted environment. It is not equivalent to a container sandbox.
+- The artifact store records path/creator/time/source-step/type but does not itself provide content-addressed SHA-256 immutability.
+- CompletionCollector copies experiment goals/results/status and evidence observations/source/artifact references into a report projection. The WriteupGenerator avoids inventing extra solution steps, but it does not produce a detailed command-by-command narrative. It also labels a non-null termination flag candidate as VERIFIED in the completion projection; confirm the upstream termination path has already performed the required verification, and do not treat this projection alone as a verifier.
 
-Decision: strongest overall architectural reference. Port/adapt contracts and design patterns, not the entire application. First dynamically validate the approval, workspace, completion and artifact paths before deciding on code reuse.
+Local validation:
+- ZIP: 465 entries; `ZipFile.testzip()` passed; no absolute/traversal paths or suspicious oversized members found.
+- Python `compileall` over agent, CLI, platform, skills, utilities, tests, main.py and config.py passed.
+- Selected pytest collection for completion, approval/workspace, policy and sandbox tests was blocked before test execution because the environment lacks `json_repair` (ModuleNotFoundError). No Agoni test pass rate is claimed.
+- The repository's locked dependencies include openai, httpx, PyYAML, json-repair, jsonschema, Typer, Rich, FastAPI and Uvicorn. The audit environment had most but not all of these; no dependency installation was attempted.
+
+Decision: strongest overall architectural reference. Port/adapt contracts and design patterns, not the entire application. Before code reuse, satisfy dependencies in an isolated environment and run the full fake-local test suite plus adversarial policy/workspace tests.
 
 ## 2. allen-haitao/ctf-agent
 
 Repository metadata observed:
 - Public Python repository; default branch main.
-- GitHub reports MIT.
-- Repository was created 2026-08-30 and pushed 2026-08-30 at review time.
+- GitHub reports MIT; uploaded ZIP includes the MIT LICENSE file.
+- Python >=3.11; core package declares no runtime Python dependencies, while optional development dependencies include pytest.
 
 Useful source areas:
 - `ctf_agent/core/models.py`: typed Evidence, Hypothesis, Experiment, Fact, Capability, FlagCandidate.
@@ -70,10 +77,18 @@ Important limitations and risks:
 - EvidenceStore is append-only at the application level but has no hash chain or tamper-evident verification.
 - The report is a useful evidence summary, not yet a strict step-by-step Writeup with a provenance reference for every factual sentence.
 - Inspected ShellTool calls subprocess with `shell=True`; ToolRuntime exposes it as a general shell tool. This is not an acceptable default execution boundary for our workbench without a stronger broker, argument model, sandbox, and explicit approval layer.
+- PythonTool and HTTP tool also execute commands or network requests; scope checks and approvals must be tested for every adapter, not assumed from the existence of a workspace.
 - README describes current supported runtime as Web and Pwn; Reverse, Crypto and Forensics are planned, not implemented.
 - Scope/authorized markers are guardrails and must not be mistaken for OS-level isolation.
 
-Decision: borrow the typed evidence/state model, experiment lifecycle, verifier pattern, and deterministic tool adapter concept. Do not reuse the unrestricted shell tool or claim full five-category support.
+Local validation:
+- ZIP: 89 entries; `ZipFile.testzip()` passed; no absolute/traversal paths or suspicious oversized members found.
+- Full test suite: **47 passed**, exit code 0, in approximately 2.49 seconds.
+- CLI smoke test: `python -m ctf_agent.cli --help` passed.
+- CLI diagnostics: `python -m ctf_agent.cli doctor --json` ran successfully. Python, file, readelf and objdump were available; GDB was optional and absent; no LLM API key was configured. No LLM request was made.
+- The Python process emitted a host-environment spreadsheet warmup traceback on stderr, but the test and CLI exit codes remained 0; this was not emitted by ctf-agent source.
+
+Decision: borrow the typed evidence/state model, experiment lifecycle, verifier pattern, deterministic tool adapter concept, and compact CLI workflow. Do not reuse the unrestricted shell tool or claim full five-category support.
 
 ## 3. kiwamizamurai/cctf
 
@@ -81,6 +96,7 @@ Repository metadata observed:
 - Public Python/Claude Code workspace; default branch main.
 - Recently updated/pushed 2026-11-03 at review time.
 - GitHub metadata reports no license; the recursive tree reviewed contains no LICENSE/COPYING/NOTICE file. Treat code reuse as not cleared unless the maintainer adds an explicit license or permission is obtained.
+- Not included in the uploaded ZIPs and was not dynamically tested.
 
 Useful source areas:
 - `.claude/skills/*`: specialist learning/analysis skills for binary, crypto, forensics, networking, and other domains.
@@ -103,10 +119,11 @@ Decision: borrow the Writeup outline, specialist skill packaging, event-specific
 |---|---|---|---|---|
 | Typed orchestration / approval | Strong reference | Partial | Claude hooks/rules | Adapt Agoni contracts |
 | Evidence model | Rich structured intelligence | Simple typed Evidence + JSONL | Queue/ledger notes | Combine with stricter event provenance |
-| Tamper evidence | Not yet confirmed | No hash chain in inspected store | No hash chain in inspected ledger | Implement hash-chained append-only events |
+| Tamper evidence | No hash chain in inspected artifact store | No hash chain in inspected store | No hash chain in inspected ledger | Implement hash-chained append-only events |
 | Writeup generation | Evidence-bound deterministic draft | Evidence-linked summary report | Rich format guide, generation skill | Build our own strict evidence-grounded generator |
 | Category runtime | Four non-Web runtimes are structure-only | Web/Pwn runtime today | Skills and playbooks | Build five thin category playbooks first |
-| Tool execution | Policy + approval + workspace boundary | Shell tool uses shell=True | Shell hooks are weak blacklist | Implement explicit allowlisted execution broker |
+| Tool execution | Policy + approval + workspace boundary; host subprocesses remain | Shell tool uses shell=True | Shell hooks are weak blacklist | Implement explicit allowlisted execution broker |
+| Local test evidence | Compileall passed; pytest blocked by missing dependency | 47 tests passed | Not tested | Validate all reusable paths locally |
 | XSWCTF fit | Adaptable, needs remote-target policy review | Needs stronger execution guardrails | Must remove auto-submit loop | Event-specific restrictive profile |
 
 ## Proposed implementation architecture
@@ -131,13 +148,9 @@ Keep our existing repository as the product, not a fork of any one upstream proj
 
 ## Dynamic validation still required
 
-Before reusing any upstream code, download/clone to an isolated local directory and run:
-- dependency/license inventory;
-- unit and integration tests;
-- fake-local completion pipeline;
-- policy/approval tests;
-- workspace traversal tests;
-- Writeup traceability tests using a deliberately incomplete event history;
-- command execution tests proving no unapproved command or out-of-scope network call can run.
-
-No upstream repository has been installed or executed as part of this static review.
+- Install Agoni's pinned dependencies in a disposable environment, then run the complete unit/integration suite and fake-local completion demo.
+- Add adversarial tests for shell syntax, path traversal/symlink escapes, approval bypass, environment-variable leakage, and network-origin redirects.
+- Build a Writeup traceability fixture with missing intermediate events; generated prose must mark the gap instead of fabricating a command, observation, or result.
+- Verify candidate-flag status against the actual upstream termination/verifier path.
+- Test all ctf-agent tool adapters with fake-local fixtures and prove that shell execution cannot bypass approval/scope.
+- Review cctf license/permission before copying any code.
