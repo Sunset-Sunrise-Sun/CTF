@@ -41,3 +41,4 @@ This repository is public. Commit application code, documentation, tests, and sy
 - [Attachment storage design, API, security model and known limitations](docs/P1_ARTIFACT_STORAGE.md)
 - [File change list](docs/P1_FILES.md)
 - [Test report](docs/P1_TEST_REPORT.md)
+- [Artifact/Event constraint fix report](docs/P1_FIX_REPORT.md)

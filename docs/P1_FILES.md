@@ -7,11 +7,12 @@
 | 文件 | 说明 |
 |---|---|
 | `backend/app/artifacts.py` | 内容寻址存储模块：流式写入、SHA-256、50MB 限制、魔数媒体类型嗅探、文件名清理、存储根路径守卫（路径穿越/符号链接/junction 逃逸、Windows 扩展路径归一化）、原子安装、只读 blob、读取后哈希校验、孤立 blob 清理。 |
-| `backend/app/migrations/002_artifacts.sql` | `artifacts` 表、`UNIQUE(challenge_id, sha256)` 去重约束、`source_event_id` 外键、append-only 触发器、题目索引。 |
-| `backend/tests/test_artifacts.py` | A01–A12 验收测试、7 类必需测试、安全测试与独立审查后的加固测试，共 32 个测试函数 / 44 个 pytest item；全部使用合成数据。 |
+| `backend/app/migrations/002_artifacts.sql` | `artifacts` 表、`UNIQUE(challenge_id, sha256)` 去重约束、`source_event_id UNIQUE` 一对一约束、`(challenge_id, source_event_id) → events(challenge_id, event_id)` 联合外键、`events_challenge_event` 复合唯一索引、append-only 触发器、题目索引。 |
+| `backend/tests/test_artifacts.py` | A01–A12 验收测试、7 类必需测试、安全测试、独立审查后的加固测试与 Artifact/Event 关联约束修复测试，共 36 个测试函数 / 48 个 pytest item；全部使用合成数据。 |
 | `docs/P1_ARTIFACT_STORAGE.md` | P1-1 设计说明：数据关联、存储布局、上传/一致性流程、API 契约、安全对照、A01–A12 矩阵、已知限制、SHA-256 实测示例。 |
 | `docs/P1_FILES.md` | 本文件变更清单。 |
 | `docs/P1_TEST_REPORT.md` | 本地测试、Ruff 与远程 CI 结果。 |
+| `docs/P1_FIX_REPORT.md` | Artifact/Event 关联约束修复报告（问题、根因、约束修复、测试与 CI）。 |
 
 ## 修改
 
