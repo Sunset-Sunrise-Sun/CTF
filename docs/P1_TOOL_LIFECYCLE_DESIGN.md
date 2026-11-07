@@ -482,6 +482,9 @@ HMAC 的固定 domain 字面量分别是 27 bytes 的 CTF/model-stream/content/v
 | max_projected_record_bytes | 1048576 | 1048576 | 单个 R_i 的完整 Canonical 字节数（含 JSON 结构/转义） |
 | max_projected_batch_bytes | 2097152 | 2097152 | 下文 P_batch，含两 HMAC 消息的全部 framing 与元数据 |
 | max_projected_request_bytes | 16777216 | 33554432 | 下文 P_request，按每批开销重复累计 |
+| max_sse_event_bytes | 1048576 | 1048576 | 单个 SSE event block 的响应 body 字节，含结束空行；未完成尾部实时计入 |
+| max_upstream_response_body_bytes | 33554432 | 67108864 | 单次 Provider HTTP response body 累计字节；headers/transfer framing 不计，具体见下文 |
+| max_upstream_read_chunk_bytes | 32768 | 32768 | 单次传输读取块硬限制；不得将超限块整体追加到应用缓冲 |
 
 R_i 嵌套深度硬上限 8（含 object/array 容器，root 深度 1），投影各对象键数硬上限 16；现有封闭 R_i schema 深度不超过 6，C/M 分别 9/16 键，不能扩展任意深对象以绕过字段表。tool.function.arguments 是字符串，不递归解析其 JSON 正文来增加投影结构。每批最多 256 条规范化记录、单记录最多 1048576 bytes，且受更紧的 2097152 bytes 批总量约束，不允许先分配 256 个最大记录后才检查总量。tool.index/choice_index 是标识，不可据其数值预分配相应长度的数组；累积器用受条目预算限制的映射。整数 token 也须增量限长：SAFE_MAX 范围最多 16 个十进制数字，索引最多 10 个；超长或增量值已超界即拒绝，不先构造任意精度大整数再比较。
 
