@@ -1,6 +1,6 @@
 # P1-2 工具生命周期与审计接口设计
 
-版本：0.2，2026-11-07；收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
+版本：0.3，2026-11-07；本次 R4 指纹修订基线：89be6021aa9022ca484dc6c663d3409f20437d5d；此前收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
 
 本轮只修改设计文档。本文为统一规范正文；[Review 补充文档](P1_TOOL_LIFECYCLE_REVIEW_ADDENDUM.md) 仅保留 R1–R4 的索引与检查记录，不另设覆盖正文的规则。不得改变 PR #1/#2 的代码、执行真实工具或开放模型网络 API。后续实现必须在独立实现分支通过审查；本文的 HTTP 路由、内部方法与数据库对象均为建议，不得在本轮注册或应用。
 
@@ -252,7 +252,7 @@ tool_capture_segments.capture_event_id 专门引用 tool_output_captured，不�
 
 持久化层只产生 **model_stream_progress** 批事件；**不新增逐 chunk 的 model_stream_chunk 事件或表**。内部 chunk_sequence 不作为数据库行主键。每批仅覆盖一个连续区间，生成一次不可变 batch_id；不以重试生成新 batch_id。
 
-批 payload 字段：batch_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at，另含公共 request_id/provider_id/model_id。batch_first_sequence 只是 first_sequence 的同义描述，数据库和 JSON 正式字段统一叫 first_sequence，禁止两套字段/计数并存。
+批 payload 字段：batch_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at，另含公共 request_id/provider_id/model_id 以及 audit_dataset_id、fingerprint_version、key_id、content_fingerprint、batch_digest。两个 tag 的计算以 §8.1.1 为唯一规范。batch_first_sequence 只是 first_sequence 的同义描述，数据库和 JSON 正式字段统一叫 first_sequence，禁止两套字段/计数并存。
 
 公式：1 <= first_sequence <= last_sequence；batch.chunk_count = last_sequence - first_sequence + 1。批次内容序号不得重叠，不得跨 gap 合并。content_bytes_delta 按本批公开文本及 tool function name/argument 字符串片段的 UTF-8 字节数之和计算（不含协议 framing、call id、私有推理）；tool_delta_count 按结构化工具增量项计数，独立于 chunk_count。一帧可以含多个工具增量项。
 
@@ -272,21 +272,57 @@ stateDiagram-v2
     TERMINAL --> [*]: 唯一终结，不等同于成功
 ```
 
+### 8.1.1 内容指纹与 batch_digest 的不同语义
+
+旧定义只摘要批元数据，同长度的不同文本可能得到相同摘要，不能用于内容重放校验。新设计区分两层，均使用完整 256-bit HMAC-SHA-256（不截断）：
+
+- content_fingerprint：绑定实际接收的公开内容片段、工具增量字节、片段边界和序号，以及本数据集/请求/批次/区间；不保存正文。
+- batch_digest：认证该 content_fingerprint 与全部不可变批元数据的组合，作为内部重试比较与元数据绑定校验值。它不是裸 SHA-256 元数据摘要，也不是可从数据库单独重建的内容证明。
+
+HMAC 使用标准构造（[RFC 2104](https://www.rfc-editor.org/rfc/rfc2104)），本设计具体选 SHA-256；不使用 MD5/SHA-1。指纹降低持有数据库但不持有密钥者对低熵内容做离线猜测的能力；它仍是敏感本地审计信息，不默认公开导出。不将 HMAC 描述为能抵御持有审计密钥或机器完全控制权者的伪造。
+
+精确定义（以下是字节协议规范，不是实现代码）：
+
+1. J(x)=UTF-8(canonical JSON(x))，沿用正文 canonical：键排序、无额外空白、ensure_ascii=false、禁止非有限数。字符串不 trim、不脱敏、不改换行、不做 Unicode normalization；拒绝无效 UTF-8/Unicode、重复 JSON 键及不符合已声明投影 schema 的字段类型，不能用 replacement 字符静默代替内容。
+2. F(b)=U64BE(len(b)) || b；U64BE 为 8 字节无符号大端长度。所有拼接项有长度前缀，防止不同片段边界得到相同消息。
+3. 定义不可变 context C={fingerprint_version:"stream-content-v1", key_id, audit_dataset_id, challenge_id, request_id, batch_id, first_sequence, last_sequence, chunk_count}。audit_dataset_id 是数据目录创建时生成并持久化的随机 UUID，不从路径推导。原有批大小与序号校验不变。
+4. 对区间内每个 i，R_i=J({chunk_sequence:i, choices:[...]})。choices 保持接收数组顺序；每项包括 choice_index、实际存在的 content 字符串，以及按接收顺序的 tool_deltas。每个工具增量保存实际存在的 index、id、type 和 function.name/function.arguments 字符串片段；不将 arguments JSON 解析后再序列化以代替原片段。缺失字段省略，显式 null 保留，二者不同。公开 content 与工具参数的实际字符串 UTF-8 字节都进入计算；同一帧有两类内容都覆盖。字段类型与允许 null 的范围由 stream-content-v1 schema 固定，未知公开 delta 字段拒绝/版本升级，不能静默丢弃后还宣称完整。
+5. content_fingerprint = lowercase_hex(HMAC-SHA256(K[key_id], F(ASCII("CTF/model-stream/content/v1")) || F(J(C)) || F(R_first) || ... || F(R_last)))。
+6. M 为 §8.1 批 payload 中全部不可变字段加 audit_dataset_id、challenge_id、request_id、provider_id、model_id、fingerprint_version、key_id、content_fingerprint，唯独排除 batch_digest 本身。M 包括接收时间戳、计数和区间；不包括之后生成的 Event event_id/sequence/occurred_at/哈希，避免循环。
+7. batch_digest = lowercase_hex(HMAC-SHA256(K[key_id], F(ASCII("CTF/model-stream/batch/v1")) || F(J(M))))。不同 domain 字符串分隔内容和元数据认证；两个输出均为 64 个小写十六进制字符。比较使用常量时间比较，不用前缀/截断匹配。
+
+这里保护的是**协议解析后、未改写的公开内容/工具增量投影字节与顺序**，不是 TCP/TLS/SSE 原始 wire 字节；JSON escape 等不同但解码值相同的传输形式视为同一公开内容。不包含私有推理、heartbeat、finish 控制帧，也不证明其内容完整；协议终结与 finish_reason 仍单独校验。增加/删除内容块、改变 chunk 边界或任一工具增量、call id、序号或上下文，均会改变指纹（以密码算法碰撞概率为限）。统计 content_bytes_delta 的口径不变；即使计数字节数相同，指纹仍覆盖实际字节。
+
+受信接收层在有界内存中持有本批 R_i，冻结原始 context、元数据和 batch_id 后计算两层 HMAC；仅持久化标识、元数据及两个 tag，不写 R_i、正文或独立逐块明文哈希。重试沿用冻结的接收时间/字段，不能用重试时间替换原时间。只有受信接收层可生成指纹，不接受客户端/Provider 提交的“已计算 tag”作为实际内容验证。提交成功或有界重试结束后清除内容缓冲；不将中间 HMAC 状态/正文写磁盘。若同一进程中仍有真实候选内容，必须重算 content_fingerprint，再算 batch_digest，不能只比较候选计数或复用旧 tag。
+
+### 8.1.2 HMAC 密钥生命周期与失败策略
+
+审计密钥与 Provider API Key 完全独立：K 为专用 CSPRNG 生成的 32 个随机字节，key_id 为随机不透明 ID。首次配置必须先将 K 持久化到 OS 安全密钥存储/密封 keyring，验证可读后才激活；不得每次进程启动重新生成同 key_id 的 K。Windows 目标采用当前用户作用域 OS 密封保护（如 DPAPI），密封文件放 Git 忽略的本地安全目录并限制 ACL；其他平台须提供等价受控 backend，否则该审计路径失败关闭，不降级为明文配置、API Key 或无密钥 SHA。
+
+SQLite 的 audit_key_versions 只保存 key_id、算法/版本、非敏感 keystore_locator、created_at、状态与激活记录；secret 不入 DB、Event、日志、报告、Git 或通用导出。audit_dataset_id 和 keyring 属于数据目录恢复依赖；数据库和密封 keyring 应有受权限控制、分离于公开产物的备份，跨用户/机器恢复需经授权的安全密钥恢复程序，不保证复制 DPAPI 文件就能解密。
+
+新请求在 model_request_started 固定 fingerprint_version/key_id/audit_dataset_id，所有批沿用同一版本，不允许单请求中途换 key。轮换先安全持久化新密钥，再激活给新请求；旧密钥转 draining（不再分配给新请求，仅允许已绑定在途请求写入），在途请求全部收尾后转 verify-only 供历史校验。状态“退役”不等于销毁；保留期间必须可恢复。确需撤销/销毁时，受影响在途请求停止，历史 tag 标为 revoked/unverifiable 的**当前验证结果**，不回写历史事件、旧 tag 或终结状态；不得用新 key 重签旧批而假称历史仍可验证。无删除期限的不可变审计意味着旧 key 也需长期保留；删除/撤销是显式降低历史可验证性的管理操作。
+
+服务重启按 key_id 从安全存储加载相同 K，验证 dataset 绑定和 key 可用性。缺失/损坏/权限不可用/已撤销则返回明确 key_unavailable/key_revoked，禁止该请求的新批写入或“校验通过”声明；不生成替代 key、不回落到只比较元数据。新增请求也须可持久恢复的 active key，否则 audit_unavailable。密钥内存只在审计组件内使用，不与模型通信模块共享。
+
+
 ### 8.2 事件、累计统计和缺口
 
 所有模型事件 actor=system，timestamp 使用 Event.occurred_at，artifact_ids 默认 []；event_refs 关联请求开始、已持久化进度或 gap 事件。批元数据不证明真实工具执行。
 
 | 阶段 | event_type 与附加 payload | 判定 |
 |---|---|---|
-| 请求开始 | model_request_started：requested_at、effective_mode、limits、capabilities_snapshot | I/O 前同事务落盘 |
+| 请求开始 | model_request_started：requested_at、effective_mode、limits、capabilities_snapshot、audit_dataset_id、fingerprint_version、key_id | I/O 前同事务落盘 |
 | 响应开始 | model_stream_started：received_at、HTTP status class、protocol | 不代表收到内容或完整响应 |
-| 批进度 | model_stream_progress：§8.1 的批 payload | 每 batch 一事件，区间连续、无正文 |
+| 批进度 | model_stream_progress：§8.1 的批 payload | 每 batch 一事件，区间连续、无正文，含两层 HMAC tag；事件与批 row 同字段，不在日志/默认导出暴露 tag |
 | 审计缺口 | model_stream_audit_gap：gap_id、reason_code、first_sequence、last_sequence?、extent_known、detected_at | 已知缺口闭区间；未知尾部 last_sequence=null、extent_known=false |
 | 唯一终结 | model_call：response_status、complete、protocol_complete、audit_complete、finish_reason?、requested_at、ended_at、partial_received、recovered、下述累计统计 | 成功必须协议与审计双完整 |
 
 所有 stream 终结（成功/失败/取消/恢复）使用同一组累计字段：
 
-statistics_scope=stream；buffered 降级使用 §8.4 的 not_applicable，不能混用统计。
+statistics_scope=stream；terminal 同时记录 audit_dataset_id/fingerprint_version/key_id、fingerprinted_batch_count（本次提交时已由受信接收层计算并提交内容 tag 的批数）、content_verification_scope=receiver_computed_at_ingest。此数不代表重启后重新读取正文验证。缺 key/指纹计算失败不能提交新的成功批，收尾为审计失败/缺口；不能降级为元数据去重。buffered 降级使用 §8.4 的 not_applicable，不能混用统计。
+
+audit_complete=true 还要求 fingerprinted_batch_count=persisted_batch_count，每个批的两 tag/版本/key 绑定在摄入提交时已校验；只因覆盖区间完整而未校验内容指纹，不得标审计完整。当前历史回执验证结果与终结时状态分开返回，不回填历史 content_reverified。
 
 - received_chunk_count：实际已接收的内容块总数，正常有界收尾时为整数。terminal.chunk_count 明确为它的兼容别名，必须同值；**不是批数或已持久化数**。崩溃无法恢复接收总数时二者均为 null，不能以持久化数替代。
 - received_chunk_count_lower_bound：能够证明的已接收总数下界；已知时等于 received_chunk_count，未知时不少于已持久化最大 last_sequence。
@@ -311,17 +347,42 @@ gap 一旦提交就保留不可变；本设计不在同一请求里事后补齐�
 
 | 表 | 主键和字段 | 约束 |
 |---|---|---|
-| model_requests | request_id PK；challenge_id、provider_id、model_id、requested_at、effective_mode、limits、start_event_id UNIQUE | UNIQUE(challenge_id,request_id)；开始事件同题 FK；不可变 |
-| model_stream_progress | batch_id PK；challenge_id、request_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at、batch_digest、event_id UNIQUE | UNIQUE(request_id,first_sequence)；CHECK first>=1、last>=first、chunk_count=last-first+1、计数非负；同题 request/event FK；不可变 |
+| model_requests | request_id PK；challenge_id、provider_id、model_id、requested_at、effective_mode、limits、audit_dataset_id、fingerprint_version、key_id、start_event_id UNIQUE | UNIQUE(challenge_id,request_id)；开始事件同题 FK；不可变 |
+| model_stream_progress | batch_id PK；challenge_id、request_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at、audit_dataset_id、fingerprint_version、key_id、content_fingerprint、batch_digest、event_id UNIQUE | UNIQUE(request_id,first_sequence)；CHECK first>=1、last>=first、chunk_count=last-first+1、计数非负；同题 request/event FK；与 request 的 dataset/version/key 一致；两 tag 均为 64 位小写 hex；不可变 |
 | model_stream_gaps | gap_id PK；challenge_id、request_id、first_sequence、last_sequence?、extent_known、reason_code、event_id UNIQUE | UNIQUE(request_id,first_sequence)；已知区间 last>=first；未知尾部 last IS NULL；同题 request/event FK；不可变 |
 | model_terminals | request_id PK；challenge_id、terminal_event_id UNIQUE、status、complete、protocol_complete、audit_complete、累计字段 | 同题 request/event FK；所有状态至多一行终结；不可变 |
 | model_state | request_id PK；revision、phase、last_committed_sequence、observed_lower_bound | 可变投影；CAS，与相关事件/关系行同事务；不能代表未观测的上界 |
+| audit_datasets | audit_dataset_id PK、created_at | 本数据目录仅一条随机 UUID 身份记录，首次与审计初始化持久化；恢复沿用原 ID，不按路径重生成；request.dataset 外键引用 |
+| audit_key_versions | key_id PK；algorithm=HMAC-SHA256、fingerprint_version、keystore_locator、created_at | 仅非秘密清单；密钥生命周期见 §8.1.2，状态/轮换保留管理记录；key_id 不可绑定另一 secret；request.key_id 外键引用 |
 
 批事件、批行、model_state 和 event_heads 同一 BEGIN IMMEDIATE 事务；先插 Event 再引用它。overlap 需 INSERT 触发器/同事务查询阻断：同请求存在 old.first <= new.last AND old.last >= new.first 即冲突，不只依赖 UNIQUE(first_sequence)。不能向已声明 gap 的区间补插批。终结前按实际批/缺口行重新校验累计量，之后禁止新批/gap。request 结束后的恢复说明作为 limitation，不插第二终结或篡改已冻结覆盖。
 
 gap 不得与既有批或其他 gap 重叠（未知尾部按无界上端检查），不同 gap_id 的重复范围拒绝，重试必须使用原 gap_id。terminal 约束 chunk_count IS received_chunk_count（允许两者同为 null），已知 received 不得小于持久化最大 last_sequence；persisted_chunk_count 等于区间并集大小；complete=true 必须同时 protocol_complete/audit_complete=true，response_status=success 仅允许 complete=true。这些跨行累计校验需同事务服务/触发器实现，当前只规定设计，不声称 SQL 已验证。
 
-batch_digest 覆盖 request_id、batch_id、区间和全部批元数据（不含敏感正文）。重试用同 batch_id/同 digest 返回原 event_id，不重复追加事件或累计；同 ID 异载荷 409。不同 ID 同 first 或区间重叠也拒绝，不新增计数。事件提交成功但应答丢失后从 DB 查回，不生成替代批。gap_id 同样幂等；终结唯一 request_id 及 CAS 防止成功/取消双 winner。schema 不定义 chunk_sequence PK，也不把 batch_first_sequence 另列成第二主键。
+批幂等以 §8.1.1 的 content_fingerprint 与 batch_digest 共同验证，撤销“只比较元数据摘要即可验证内容重放”的旧定义。schema 保持 batch_id 唯一主键及 UNIQUE(request_id,first_sequence)，不引入逐 chunk 表；SQL 约束只能检查关系/格式，HMAC 验证需由持有受信 key 的服务在事务写入前完成。gap_id 仍按原规则幂等；terminal 每 request 唯一。
+
+同批候选写入流程：从可信内部接收层获得候选实际投影字节与原冻结元数据 → 加载固定 key_id → 重算 content_fingerprint/batch_digest → 验证已有 row 和 Event 绑定 → BEGIN IMMEDIATE 内查重/约束/提交。已存在同 batch_id 时，仅上下文、两 tag 及全部元数据均一致才返回原 event_id；原计数不变。任何实际内容、工具参数、边界、次序或 metadata 不同，即使计数/长度相同也 409 batch_replay_conflict。不同 batch_id 同 first/重叠仍拒绝，不能靠重新签名绕过。
+
+重启后的两种操作必须分开：
+
+- **仅查提交回执**：从 SQLite 读原 row 和 Event，使用恢复的旧 K 对存储的 M 重算 batch_digest，检查事件哈希和 dataset/request/key 关联。可以确认 metadata_binding_valid 并返回 receipt_only；由于 R_i 未保存，不能重算原 content_fingerprint，必须标 content_reverified=false。查回执不接收候选新内容，不称为“重放内容相同”。
+- **带真实候选内容重放**：受信接收层确有原始候选 R_i 时，按原版本/context 重算两 tag，与原 row 常量时间比较；相同只返回回执，不追加事件或统计。不能把已存 content_fingerprint 复制进新候选来通过校验。若调用者只有旧 metadata/tag 而无候选字节，则拒绝候选写入（replay_content_unavailable），只能使用只读回执查询。
+
+若崩溃丢失未提交批正文：本设计默认不落正文，无法恢复该批内容，不能从 tag/计数重建。按已有审计覆盖记录 gap/unknown_tail；不得重发模型请求冒充同一响应，亦不得将提交回执查询算作新批验证。已提交原批可以恢复回执；无法恢复原 key 则明确 key_unavailable/key_revoked，不声称认证成功。
+
+| 幂等/恢复场景 | 必须验证 | 结果（设计要求） |
+|---|---|---|
+| 同 batch_id、相同实际内容与原冻结元数据 | 受信层重算两 tag，context/版本/key 都一致 | 原 event_id，无重复事件/计数 |
+| 同 batch_id、内容不同但长度/数量/时间等元数据相同 | content_fingerprint 重算不一致 | 409 batch_replay_conflict；零写入 |
+| tool argument/call id、chunk 边界/顺序变化 | R_i/序号与长度前缀全覆盖 | 409，不用仅 text_bytes 相等作为依据 |
+| 内容相同但 metadata、request_id、batch_id 或区间被替换 | context/content tag 或 M/batch tag 不一致 | 409；跨题依旧 404，不泄露原批 |
+| 新 batch_id 占用旧 first/重叠区间 | 唯一/重叠约束，与 tag 验证并用 | 拒绝，不新增计数 |
+| 重启、key 已恢复、有真实候选字节 | 按固定旧版本/key 重算并比对两 tag | 同内容幂等，异内容 409 |
+| 重启、只有已提交回执 | 仅 M/batch_digest 与 Event 绑定检查 | receipt_only，content_reverified=false，无写入 |
+| 重启、未提交缓冲丢失 | 无法重算内容，不接受复制 tag | gap/unknown_tail；禁止补造成功 |
+| key 丢失/撤销/版本不支持 | 明确校验不可用 | key_unavailable/key_revoked/unsupported_fingerprint_version；不成功、不降级 |
+
+同 row 的 HMAC/事件绑定不一致属于 audit_integrity_error，不能按普通幂等命中返回可信回执。历史终结事件不因当前 key 不可用被改写；当前检查结果另行返回 unverifiable/invalid，保留历史录入事实。
 
 ### 8.4 协议终结、错误与工具边界
 
@@ -372,7 +433,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 | S04 | DONE 无 finish_reason、length、截断 arguments；时长/chunk/字节上限边界 | incomplete/invalid_response 或 limit_exceeded；即使覆盖全也不 complete；关闭上游，无提案 |
 | S05 | tool delta 分片跨批、重复 ID、多 choice、heartbeat/finish 控制帧 | chunk 计数按内容帧一次，非按 token/工具数；控制帧不占号；完整且无审计缺口才可转提案 |
 | S06 | async with 提前 break/aclose、重复 cancel、取消时尾批 flush | 关闭 HTTP；批重放无重复计数；一次 cancelled terminal；flush 失败显式 gap |
-| S07 | 批提交应答丢失、batch ID 重放/异载荷、重叠/缺号、写库失败、重启未知尾部、双终结竞态 | 唯一 PK/区间/内容摘要约束；显式有界 gap 或未知尾部；received 未知不可猜；不返回已审计成功；唯一终结 |
+| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；唯一终结 |
 | S08 | buffered 降级、complete 嵌套与空流 | 不伪造 progress/chunk 序号；stream 统计 not_applicable；无双 model_call；真正空流按协议证明与零内容统计判定 |
 | C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
 | C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
@@ -408,5 +469,6 @@ P1-1 public add_artifact/ingest/下载/去重契约不变。新增内部事务�
 二次复核结论：上述六项在设计层闭合，无阻止提交设计 PR 的剩余 blocker。其非阻塞建议也已采纳：定义 tool_output_captured，明确 capture_event_id 关联，保证复用同内容 Artifact 时仍保留本次捕获来源。
 
 该复核是架构文档审核，不是实现验收或运行安全批准；仍需用户指定审核人确认后再下发实现任务。
+
 
 
