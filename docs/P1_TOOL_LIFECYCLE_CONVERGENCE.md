@@ -105,7 +105,7 @@ PR 描述同步更新，保持 Draft，等待独立验收；本轮不授权实�
 
 
 
-## R4 数值类型与规范序列化收尾
+## 前次 R4 数值类型与规范序列化收尾（历史记录）
 
 本轮父基线：6ad319ad147fa94e37bea183745fa91271f14b93。只解决确定性，不改变 HMAC 两层结构、批主键、取消流程或执行能力。
 
@@ -146,9 +146,69 @@ PR 描述同步更新，保持 Draft，等待独立验收；本轮不授权实�
 
 本次 11 项静态/样例检查结果一致：C 九字段、展开 M 十六字段、V1/V2/V3 的输入 UTF-8 长度分别为 4/10/18、K01–K11 清单齐全、整数边界声明、Canonical 规则声明、时间格式声明、golden 未计算标记、Markdown 围栏配对。样例检查只读取固定 JSON 展示块并核对字段/字节数，不是跨语言 Canonical 或 HMAC 向量运行。
 
-### 本轮修改文件
+### 前次数值规范修订文件（历史记录）
 
 1. docs/P1_TOOL_LIFECYCLE_DESIGN.md：版本、§8.1.1 完整确定性规范/KAT、§8.3 入库边界说明、S07。
 2. docs/P1_TOOL_LIFECYCLE_CONVERGENCE.md：契约核对、差异、规范索引、KAT 设计边界与静态检查。
 
 不修改 main、PR #1/#2、Python 功能代码或迁移；不启用模型/工具；PR #3 保持 Draft，未合并。旧轮次检查记录只作历史记录，不表示本轮已获独立验收。
+
+
+
+## P1-2-R5 HMAC 输入资源边界收敛
+
+父基线：50bf43d9be9561e6d8daede8ebb8e720e9ac68a3。仅修改本记录和 DESIGN，PR #3 保持 Draft，等待独立复审。没有修改功能代码、创建迁移/真实密钥、调用模型或工具。
+
+### 具体数值与选择依据
+
+所有字符串按严格 UTF-8 **字节**而非字符数校验；max_single_string_utf8_bytes=262144。逐字段更小硬上限：key_id/provider_id=128，model_id/tool.id/function.name=256，content/function.arguments=262144；id/name/arguments 的累积调用槽位受同一上限。UUID 仍固定 36，时间固定 32，fingerprint_version 固定 17，tool.type 固定 8，hex tag 固定 64，schema property name<=32 且只能是固定已知键。
+
+| 限额 | 默认 / 硬上限 |
+|---|---|
+| choices/frame | 1 / 1 |
+| tool_deltas/frame | 16 / 16 |
+| tool_delta_count/request | 4096 / 4096 |
+| batch records | 64 / 256（原 max_batch_chunks） |
+| projected record | 1048576 / 1048576 bytes |
+| max_projected_batch_bytes | 2097152 / 2097152 bytes |
+| max_projected_request_bytes | 16777216 / 33554432 bytes |
+| source SSE event | 1048576 / 1048576 bytes |
+| wire request | 33554432 / 67108864 bytes |
+| 单次 read / 投影深度 / 单对象键数 | 32768 bytes / 8 / 16 |
+
+选择保守预算限制 ID 放大、空增量/数组对象放大及 Canonical 转义开销；单选择与现有行为一致，参数仍允许较长合成脚本。入口预算避免先完整 JSON/SSE 缓冲才发现投影过大。各项同时生效，某字符串到上限不保证整个记录/批还合法；这些不是性能实测承诺，详见 DESIGN §8.1.1.f。
+
+### 投影统计与原口径兼容
+
+P_batch=(8+27)+(8+L(J(C)))+SUM(8+L(R_i))+(8+25)+(8+L(J(M)))；包含两 domain、全部 F 前缀、重复 C/M 元数据与全部 Canonical 转义。P_request=已提交 P_batch 之和+当前候选 P_batch。精确 size-only 计算在缓冲/输出/HMAC 之前逐 token/scalar 执行；M 的 64-byte hex 槽只用于预算，不生成占位 tag。
+
+content_bytes_delta 不改变，call id 不强塞进内容计数；新 resource_usage 在事件/row 中独立保存，终结记录 projected_committed_bytes、projected_observed_lower_bound、projected_count_complete、limit_code/effective_limits。C/M 的字段清单、字节规范、HMAC 域与指纹计算不变；resource_usage 不自动进入封闭 M。
+
+### 修改前后差异与超限状态
+
+| 项目 | 修订前 | R5 后 |
+|---|---|---|
+| 字符串资源 | 有类型/SAFE_MAX，部分非内容字段无字节边界 | 全字段 UTF-8 硬上限，片段及累积调用均受约束 |
+| 数组资源 | 主要依赖内容 chunk 数 | 每帧 choices/tool 数、每请求累计 delta、单批记录数明确受限 |
+| 总 HMAC 开销 | content_bytes 不涵盖 ID/结构/转义 | 精确 P_batch/P_request 与 record 预算覆盖实际 HMAC 消息 |
+| 检查顺序 | 容易先完整缓冲/序列化再拒绝 | 入口/增量解码/size-only 先检查，之后才构建合法批及 HMAC |
+| 超限收尾 | 一般异常可能 finally flush 尾批 | limit_exceeded 专用路径整批丢弃，不截断签名、不提交前缀批 |
+| 审计准确性 | 可能把部分缓冲计为完整成功 | 已知 missing_ranges/未知尾部；唯一失败 terminal，complete/audit_complete=false，protocol_complete 只记观测事实 |
+| 重试 | 可能换批 ID 避开预算 | 同流不恢复/重分批；只允许合法旧批回执/同 ID 数据库收尾幂等 |
+
+配置字段在请求开始前超限则拒绝配置，不联网、不生成含坏字段的 request/terminal。运行流超限立即关闭上游，丢弃**当前未提交整批**；先前已合法提交的部分审计不删除。已分类块缺持久化则写 gap；尚未判定是否内容块的截断帧用 null 总数/下界/unknown_tail，不编造序号。收尾审计失败不能假称 terminal/gap 已落盘，恢复仍保留缺口。超限批无 Artifact、progress、tag 或可执行提案；receipt_only 不等于继续消费。
+
+### S07 资源测试矩阵（未运行）
+
+DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Provider/key、256/257-byte model/name、85个“中”+A=256 再加 B=257-byte、多字节与转义膨胀、256KiB 字符串及累积槽位边界；1/2 choices、16/17 delta/frame、4096/4097 delta/request；1MiB record、2MiB batch、32MiB request 的 B−1/B/B+1（默认 16MiB 另测）；入口 1MiB/64MiB；超限拒绝批零部分成功及重试/收尾幂等。S07 已链接全部场景。
+
+必须隔离目标限额构造样例，不能以先撞到别的限额冒称该边界已验证。所有用例仍为设计清单，没有运行 HMAC、实际模型、工具、SQLite 或故障恢复测试。
+
+### 本次文件与静态一致性检查
+
+1. docs/P1_TOOL_LIFECYCLE_DESIGN.md：新增 §8.1.1.f 数值资源契约；同步 §8.1/§8.2/§8.3/§8.4 的 flush、超限、schema 诊断字段与 S07。
+2. docs/P1_TOOL_LIFECYCLE_CONVERGENCE.md：本 R5 数值/依据、差异、状态、测试矩阵与检查边界。
+
+静态核对范围：字符串穷举与既有封闭类型表对应；所有预算有默认/硬上限；C/M/R_i 与 F/domain 的总量公式完整；原 content_bytes 口径和 C/M 字段数不改；finally flush 的资源拒绝例外在各节一致；测试包含全部用户要求及旧批不重复收费。仅为文档检查，未声称运行测试通过；后续实现和独立复审仍未完成。
+
+本次 12 项静态声明/样例检查一致：字符串限额覆盖、数组限额、投影预算、两 domain 字节长度 27/25、合成多字节边界样例 256/257、全部 framing 公式、HMAC 前检查约束、超限原子性、S07 引用、R5-01–R5-12 齐全、Markdown 围栏配对、封闭 M 十六字段保持。仅扫描文档与核对固定字节长度，未执行边界处理器、HMAC、数据库或真实 Provider 测试。

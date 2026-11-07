@@ -1,6 +1,6 @@
 # P1-2 工具生命周期与审计接口设计
 
-版本：0.4，2026-11-07；本次数值/规范序列化修订基线：6ad319ad147fa94e37bea183745fa91271f14b93；前次 R4 指纹修订基线：89be6021aa9022ca484dc6c663d3409f20437d5d；此前收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
+版本：0.5，2026-11-07；本次 R5 资源边界基线：50bf43d9be9561e6d8daede8ebb8e720e9ac68a3；本次数值/规范序列化修订基线：6ad319ad147fa94e37bea183745fa91271f14b93；前次 R4 指纹修订基线：89be6021aa9022ca484dc6c663d3409f20437d5d；此前收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
 
 本轮只修改设计文档。本文为统一规范正文；[Review 补充文档](P1_TOOL_LIFECYCLE_REVIEW_ADDENDUM.md) 仅保留 R1–R4 的索引与检查记录，不另设覆盖正文的规则。不得改变 PR #1/#2 的代码、执行真实工具或开放模型网络 API。后续实现必须在独立实现分支通过审查；本文的 HTTP 路由、内部方法与数据库对象均为建议，不得在本轮注册或应用。
 
@@ -248,15 +248,17 @@ tool_capture_segments.capture_event_id 专门引用 tool_output_captured，不�
 
 ### 8.1 接收层与持久化层分离
 
-内部接收层每收到一个“内容 chunk”即分配 request 内从 1 开始单调递增的 chunk_sequence；一个协议内容帧包含公开文本或结构化 tool delta 即计一次，同时含两者也只计一次。不按 token、文本长度或 tool call 个数计数。heartbeat、仅 finish_reason/usage 的控制帧、DONE 和无公开内容的帧不占内容序号；私有推理不进入正文/参数审计，也不作为公开内容 chunk。收到内容即计数，不能只统计已交付 UI 或已写库的内容。
+内部接收层每收到一个“内容 chunk”即分配 request 内从 1 开始单调递增的 chunk_sequence；一个协议内容帧包含公开文本或结构化 tool delta 即计一次，同时含两者也只计一次。不按 token、文本长度或 tool call 个数计数。heartbeat、仅 finish_reason/usage 的控制帧、DONE 和无公开内容的帧不占内容序号；私有推理不进入正文/参数审计，也不作为公开内容 chunk。收到内容即计数，不能只统计已交付 UI 或已写库的内容。R5 补充：解析尚未完成就被入口预算中止时，不能猜它一定是完整内容块；按 §8.1.1.f 的下界/unknown_tail 表达。
 
 持久化层只产生 **model_stream_progress** 批事件；**不新增逐 chunk 的 model_stream_chunk 事件或表**。内部 chunk_sequence 不作为数据库行主键。每批仅覆盖一个连续区间，生成一次不可变 batch_id；不以重试生成新 batch_id。
 
 批 payload 字段：batch_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at，另含公共 request_id/provider_id/model_id 以及 audit_dataset_id、fingerprint_version、key_id、content_fingerprint、batch_digest。两个 tag 的计算以 §8.1.1 为唯一规范。batch_first_sequence 只是 first_sequence 的同义描述，数据库和 JSON 正式字段统一叫 first_sequence，禁止两套字段/计数并存。
 
+资源预算由 §8.1.1.f 给出，独立于下列内容计数；call id 不加入 content_bytes_delta，但其全部投影字节受新预算保护。
+
 公式：1 <= first_sequence <= last_sequence；batch.chunk_count = last_sequence - first_sequence + 1。批次内容序号不得重叠，不得跨 gap 合并。content_bytes_delta 按本批公开文本及 tool function name/argument 字符串片段的 UTF-8 字节数之和计算（不含协议 framing、call id、私有推理）；tool_delta_count 按结构化工具增量项计数，独立于 chunk_count。一帧可以含多个工具增量项。
 
-flush 在达到 max_batch_chunks 或从本批首块起 max_batch_wait_ms（单调时钟）时触发，空批不写。结束/取消/异常前 flush 尾批；审计失败立即停止继续消费并关闭上游，限时重试同批，不能无限积压。批数 <= 接收内容块数 <= max_content_chunks，禁止 heartbeat 单独写进度导致无界事件。开始/终结/gap 事件不计入批数。
+flush 在达到 max_batch_chunks 或从本批首块起 max_batch_wait_ms（单调时钟）时触发，空批不写。结束/取消/非资源异常前 flush 尾批；资源超限走 §8.1.1.f 的整批拒绝，不 flush 被拒绝批；审计失败立即停止继续消费并关闭上游，限时重试同批，不能无限积压。批数 <= 接收内容块数 <= max_content_chunks，禁止 heartbeat 单独写进度导致无界事件。开始/终结/gap 事件不计入批数。
 
 建议服务端默认/硬上限（待实现配置，非实测性能）：max_batch_chunks=64/256，max_batch_wait_ms=250/1000，max_request_duration_ms=120000/300000，max_content_chunks=8192/65536，max_content_bytes=4MiB/16MiB。各值必须正数且不超过硬上限；客户端只能缩小。达到任一请求限额时关闭上游，response_status=limit_exceeded，complete=false，不生成提案；计数包含触发限额的已收到块，不把它隐藏，内存缓冲仍有硬限制。生效值记录在请求事件，恢复不使用新配置推断旧请求。
 
@@ -302,6 +304,8 @@ HMAC 使用标准构造（[RFC 2104](https://www.rfc-editor.org/rfc/rfc2104)）�
 以下规则只冻结**新 stream-content-v1 的 C、R_i 和 M**，不改变旧 Event.sequence、Artifact.size、ToolCall.arguments 或既有事件的字符串/哈希。批内 chunk_count 为正整数；§8.2 的 terminal.chunk_count/received_chunk_count 仍允许零或按原恢复语义为 null，不能把批限制套到终结统计。§8.1 的运行限额另行适用，协议数值范围不是扩大限额的许可。尚未实现的 v1 草稿现在才冻结字节形式；若已有自行实现的宽松草稿，须按旧版本标记，不得用本规范重签历史或静默解释成新字节。
 
 #### 8.1.1.b C、R_i、M 的封闭字段与数值类型
+
+所有本表字符串同时受 §8.1.1.f.1 的逐字段 UTF-8 byte 上限约束；数组、累计计数和编码规模同时受 f.2–f.3 的硬预算约束。SAFE_MAX 不是内存/计算资源上限。
 
 统一整数上界 SAFE_MAX=9007199254740991（2^53−1），索引上界 INDEX_MAX=2147483647（2^31−1）。JSON 输入整数必须是无小数点、无指数的十进制整数 token；禁止 1.0、1e0、NaN、Infinity、-Infinity、溢出、负零和字符串数字自动转换。bool 不是整数（尤其 Python 的 bool 不得按 int 接受）。负数不满足下列字段范围。解析时须在丢失 token 信息之前检查；不能依赖会把 1.0/1e0 与 1 合并的普通 JSON 解析器或宽松 schema coercion。
 
@@ -437,6 +441,113 @@ V1 的固定预期 J(R_1) 为下行 UTF-8 内容（行末换行不属于字节�
 K04 的 V3 在 golden 文件中必须显式列出上述全部 code point/输入 bytes 与预期完整 canonical hex，不能只写“含特殊字符”。K05 数组/分块对照也须有完整固定记录。每条 negative 向量只引入一个所测错误，使用上述固定预期码，不能在测试运行时任意接受任一错误。
 
 
+#### 8.1.1.f R5：HMAC 输入资源边界（所有上限同时生效）
+
+本节只补齐 stream-content-v1 资源预算，不改变 §8.1 的 content_bytes_delta 定义、Canonical 字节、两层 HMAC 域或 C/M 的 9/16 字段。资源字段不能自动加入 C/M；批事件与终结的资源统计是独立诊断元数据，受 Event 哈希覆盖，不冒称已进入 batch_digest。
+
+所有大小均以**解码后 Unicode scalar 的严格 UTF-8 实际字节数**校验，另计算 Canonical 转义后的投影字节。MiB=1048576 bytes，KiB=1024 bytes。SAFE_MAX 仅是整数表示上限，不能作为资源上限。服务端允许降低下述可配置预算，不允许提高硬上限；固定字面量/UUID/时间格式不能被配置改变。降低预算导致必需身份字段也无法容纳时，配置即无效，不以截断修复。实际生效 limits 必须在 model_request_started 固定并随恢复沿用，客户端不能扩大。
+
+##### f.1 全部字符串的 UTF-8 限额
+
+max_single_string_utf8_bytes 默认/硬上限均为 **262144**；每个字段再受以下更小的上限或固定格式约束。两个条件取交集，不是按字符数限制。
+
+| C/R_i/M 中的字符串（穷举） | UTF-8 bytes 硬上限 / 固定长度 | 说明 |
+|---|---|---|
+| C/M.fingerprint_version | 固定 17 | 仅 stream-content-v1 |
+| C/M.audit_dataset_id、challenge_id、request_id、batch_id | 固定 36 | 仍为既定小写 UUID 格式，不改为任意字符串 |
+| C/M.key_id | 128 | 非空不透明 ID；不是 secret，不能因换行/转义多分配预算 |
+| M.provider_id | 128 | 非空；模型通信前预检配置，不能信任 Provider 扩展字段来覆盖 |
+| M.model_id | 256 | 非空；不 trim 或截断 |
+| M.first_received_at、last_received_at | 固定 32 | 保持 §8.1.1.d 的六位微秒 +00:00 |
+| M.content_fingerprint；事件中的 batch_digest | 固定 64 | 64 个小写 ASCII hex；不能接受任意长 tag |
+| choice.content | 262144 | 可以空串/null/缺失；null/缺失没有字符串 bytes，但仍有投影开销 |
+| tool.id | 256 | 每片段及最终累积 call id 都不得超过 256；不计入 content_bytes_delta，但计入投影预算 |
+| tool.type | 固定 8 | 如存在仅 function |
+| tool.function.name | 256 | 每片段及最终累积工具名都不超过 256 |
+| tool.function.arguments | 262144 | 每片段及每个调用累积的原始参数字符串都不超过 262144，不允许碎片绕过 |
+| 所有对象 property name | 32 | 实际仍只能使用封闭 schema 的固定 ASCII 字段名；未知键立即拒绝，不先缓冲其值 |
+
+f.1 中可变字段的默认上限就是所列硬上限；降低后的 max_single_string_utf8_bytes 也作用于累积 call id/name/arguments，不只作用于单个帧。已结束/未结束调用的累计字节均计请求预算，不能在参数解析后重置计数；每个不同工具 index 的累积槽位又受请求 tool_delta_count 上限约束。重复发送空字段/空工具增量仍消耗结构/条目预算。
+
+HMAC 的固定 domain 字面量分别是 27 bytes 的 CTF/model-stream/content/v1 与 25 bytes 的 CTF/model-stream/batch/v1，不接受外部替换。C/M/R_i 中没有其他允许的字符串入口；未知公开字段走 schema 拒绝。字符串内的 NUL、引号和反斜杠等可能扩展成更长 Canonical 转义，不能用“原 UTF-8 合规”代替投影预算校验。
+
+##### f.2 数组、记录与请求硬上限
+
+| limits 字段 | 默认 | 硬上限 | 统计范围 |
+|---|---:|---:|---|
+| max_choices_per_frame | 1 | 1 | 任何带 choices 的源协议帧的全部元素；空 choices 控制帧仍可为空，与现有仅支持单一选择的行为一致 |
+| max_tool_deltas_per_frame | 16 | 16 | 全部 choices 中 tool_deltas 元素总数，包含空增量，不按 distinct index 去重 |
+| max_tool_delta_count | 4096 | 4096 | 每请求所有已接收内容帧的增量项累计；重复 index 也累计 |
+| max_batch_chunks | 64 | 256 | 每批 R_i 条数，沿用现有限额；空批不计算 HMAC |
+| max_projected_record_bytes | 1048576 | 1048576 | 单个 R_i 的完整 Canonical 字节数（含 JSON 结构/转义） |
+| max_projected_batch_bytes | 2097152 | 2097152 | 下文 P_batch，含两 HMAC 消息的全部 framing 与元数据 |
+| max_projected_request_bytes | 16777216 | 33554432 | 下文 P_request，按每批开销重复累计 |
+
+R_i 嵌套深度硬上限 8（含 object/array 容器，root 深度 1），投影各对象键数硬上限 16；现有封闭 R_i schema 深度不超过 6，C/M 分别 9/16 键，不能扩展任意深对象以绕过字段表。tool.function.arguments 是字符串，不递归解析其 JSON 正文来增加投影结构。每批最多 256 条规范化记录、单记录最多 1048576 bytes，且受更紧的 2097152 bytes 批总量约束，不允许先分配 256 个最大记录后才检查总量。tool.index/choice_index 是标识，不可据其数值预分配相应长度的数组；累积器用受条目预算限制的映射。整数 token 也须增量限长：SAFE_MAX 范围最多 16 个十进制数字，索引最多 10 个；超长或增量值已超界即拒绝，不先构造任意精度大整数再比较。
+
+所有进入投影的源帧还必须有**解析前入口护栏**，否则即使投影有界也可能先被 JSON/SSE 缓冲耗尽资源：max_sse_event_bytes 默认/硬上限 1048576；max_wire_request_bytes 默认 33554432、硬上限 67108864；单次上游读取最多 32768 bytes。计数包含 framing、空白、重复/未知字段、heartbeat 和被投影排除的内容，事件超限在完整帧缓冲/对象树构建前停止。源 JSON 也限制容器深度 8、每对象键数 16，使用相同 root=1 定义；不在未知字段里构建任意深对象。SSE 结束后也不能自动无限消费。解码器必须逐 token 校验深度、键、数组数量及字符串长度，不能先 json.loads 一个无界帧再检查；仅有 httpx timeout 不满足本契约。允许至多一个固定 32768-byte 传输读取块，不允许将超限块整体追加到应用缓冲。入口预算与投影预算是不同计数，不改变公开内容统计或私有推理排除规则。
+
+选择依据：标识符预留 128/256 bytes，避免不计入内容统计的 ID 无限增长；1 choice 与单选择协议一致；16 增量/帧、4096 增量/请求限制对象/空项放大；256KiB 单字符串允许较长合成脚本参数，同时每调用累积受限；1MiB 记录、2MiB 批、16MiB 默认/32MiB 硬请求投影约束内存和 MAC 工作量。入口 1MiB 帧/64MiB 请求再封住解析前负担。这些是保守设计预算，未做真实 Provider 性能或兼容性实测。各约束**同时生效**，达到某个字段上限并不保证其带转义的整个帧/批也能通过。
+
+##### f.3 独立投影统计与精确计费公式
+
+令 L(x)=len(实际将进入 HMAC 的 bytes)，D_c/D_b 为两固定 domain；n 是本批记录数。沿用 F 的 8-byte 长度前缀，定义：
+
+```text
+P_batch = (8+27) + (8+L(J(C)))
+          + SUM_i(8+L(R_i))
+          + (8+25) + (8+L(J(M)))
+P_request = SUM(此前已提交批的 P_batch) + 当前候选批的 P_batch
+```
+
+即包含两条 HMAC 输入消息的全部字节，C/M 中重复的身份字段也重复收费，不能因共享指针去重；不计 HMAC 内部固定 pad 或密钥 bytes。max_projected_record_bytes 约束 L(R_i)，max_projected_batch_bytes/max_projected_request_bytes 约束上式。字节数不按 text 长度、对象数或 SAFE_MAX 粗估，F 长度前缀/键/标点/转义/时间/id/tag 都计入。
+
+检查必须**先于完整记录/批缓冲、Canonical 输出和 HMAC**：增量解码每个 scalar 时，累计原 UTF-8 字节与按 §8.1.1.c 转义规则的精确输出长度；读取数组项时立即计数；用带溢出检查的整数维护当前记录和候选批预算。C/M 体积小且字段封闭，采用 size-only 计算器预留完整结构长度。更新 last_sequence/chunk_count/计数/接收时间时重新计算受影响的 C/M 十进制和固定时间长度，不能只预留首次长度。
+
+M.content_fingerprint 总是 64 个 hex 字节，预算阶段可用“长度为 64、不会 JSON 扩展的 hex 槽”计算精确 J(M) 长度，**不计算假 tag、不把占位符送入 HMAC/持久化**。只有所有预算通过，才能冻结本批、计算真实 tag 并提交。单个 chunk 也必须先通过 record、batch、request 三层预算。正常按 chunk/time 阈值 flush 不变，但不允许在发现候选批已超预算后先提交其前缀、换 batch_id 再继续消费来掩盖超限。
+
+进度事件/批 row 可附加 resource_usage={projected_batch_bytes,projected_records_bytes}，作为受信接收层的派生诊断字段；不加入 C/M 的 9/16 字段、不能让客户端提供或靠这些自报数值跳过 size-only 校验。重放重新计算投影用量并核对原值，不重复计请求已提交预算。resource_usage 由 Event 哈希覆盖，HMAC 的 M 仍以封闭字段表为准。
+
+终结新增资源诊断：projected_committed_bytes（已提交批 P_batch 之和）、projected_observed_lower_bound（已提交加当前实际计到的投影下界）、projected_count_complete（是否能给出完整候选长度）、limit_code、effective_limits。超限导致未读完字段/帧时只能报下界和 false，不能把剩余未知字节填零。tool_delta_count 的接收总数亦保持已有已知/null+下界规则，不把未完成解析的数据猜成完整项。content_bytes_delta/received_content_bytes 的原统计口径不变，call id 仍不加入它们。
+
+##### f.4 超限的状态转换、原子性与重试
+
+| 时点/条件 | 动作与审计结果 | 完整性与状态 |
+|---|---|---|
+| Provider/model/key_id 等配置字段预检不合规，尚未创建请求审计 | 拒绝配置/调用，不联网；仅返回安全 limit_code/correlation_id，不写含超长标识的 model_request_started | 无请求即无伪造 terminal；不是成功模型调用 |
+| REQUESTED/STREAMING 中发现任一字符串、数组、累计增量或投影/入口预算超限 | 立即停止消费并关闭上游；丢弃整个当前未提交批（包括其合法前缀），不 flush 该批，不截断内容后签名 | response_status=limit_exceeded、complete=false、audit_complete=false；protocol_complete 只按实际已观测终结证明记录（通常 false，不篡改已观测事实）；不能产生可执行提案 |
+| 已有完成分类和 chunk_sequence 的超限候选或被丢弃前缀 | 给未持久化的已知接收序号区间写 model_stream_audit_gap；计入 missing_ranges，gap.reason_code=limit_exceeded，带 limit_code | received_chunk_count 包括已分类的超限块；不将该区间伪造为 model_stream_progress |
+| 入口/字符串解析中途终止，无法确认整个帧是否应计为内容块 | 只保留已证明下界；unknown_tail 从下一未确定序号起，extent_known=false；不编造超限帧的完整内容/数量 | received_chunk_count/chunk_count=null（若确实存在未分类尾部）；已知 missing_ranges 与未知尾部可同时存在 |
+| 收尾审计本身不可写 | 返回/报告 audit_write_failed，恢复仍按已有记录追加 interrupted/gap；不能谎称 terminal/gap 已提交 | 历史批不变，不返回 success，不生成新批 |
+
+limit_code 固定分类：string_utf8_bytes、choices_per_frame、tool_deltas_per_frame、tool_deltas_per_request、projected_record_bytes、projected_batch_bytes、projected_request_bytes、wire_event_bytes、wire_request_bytes、projection_structure。事件仅存码/计数/服务端限额，不能记录 offending 值/正文。类型/词法错误仍用既有 invalid_json/integer_type 等拒绝；资源界限先触发时以已知 limit_code 安全结束，不继续读完内容去探测其他错误。
+
+超限收尾事务将已知 gap/未知尾部记录、唯一 model_call、终结投影和 event_heads 一起提交；不包含超限批的 progress、tag、内容 Artifact 或模型结构化调用。保留此前**已完整提交**的合法批作为部分审计，不回滚/重写它们；“无部分成功”指没有当前超限批/截断批被写成成功，不能误解为删除真实历史。此路径覆盖 §8.1/§8.2/§8.4 的一般尾批 flush：资源拒绝一律丢弃当前批，不借 finally flush 将其落库。
+
+同一 request 在 limit_exceeded 后终结，不允许继续接收、重新分批或自动重连模型。同批只有在内容/结构/投影均合法时才可按原 batch_id/tag 重放；超限候选无有效 tag/进度回执，重试仍拒绝，不能以新的 batch_id 或截断字节获取幂等成功。已提交旧批的只读 receipt_only 查询仍允许，不产生新计数。仅终结/gap 的数据库收尾重试允许使用相同幂等 ID，结果一次性；用户以后显式创建新 request 是独立调用，不冒充原流恢复，本轮不实现或触发它。
+
+##### f.5 S07-R5 验收矩阵（设计清单，未运行）
+
+以下按 hard limit 举例；降低预算后的同样边界也要覆盖。B−1/B/B+1 指**精确 Canonical/framing 长度**；仅调正文字符数不能代替字节量。
+
+| 编号 | 固定合成场景/边界 | 预期要求 |
+|---|---|---|
+| R5-01 | tool.id 256-byte ASCII 与 257-byte ASCII；分片累积总长 257 | 256 仍受其他预算；257 string_utf8_bytes；不计算拒绝批的 HMAC，不落 progress |
+| R5-02 | provider_id 128/129、model_id 256/257、key_id 128/129 bytes | 超长在配置预检拒绝，无联网/含超长值的请求审计；边界不被字符计数放行 |
+| R5-03 | tool.id=85 个“中”+“A”（256 bytes），再加“B”（257 bytes） | 前者字段边界合法；后者超一个 UTF-8 byte 即拒绝；不能按 86/87 个字符误判 |
+| R5-04 | choice.content/function.arguments 262144/262145 bytes；name 256/257；转义控制字符 | 字段及累积槽位均检查；即使 raw UTF-8 合规，Canonical 扩展超 record/batch 也拒绝 |
+| R5-05 | 单帧 choices 1/2（含空 choice）；tool_deltas 16/17（含空项） | choices_per_frame/tool_deltas_per_frame；不能先截数组或只统计含文本项 |
+| R5-06 | 多帧累计 4096/4097 tool delta，重复同 index/空字段 | 重复项也累计；4097 tool_deltas_per_request，不因 content_bytes_delta≈0 绕过 |
+| R5-07 | R_i Canonical 1048576/1048577 bytes；最大深度/键数与未知键 | record/structure 预算在完整树和 Canonical 输出前检查；未知键仍拒绝 |
+| R5-08 | P_batch=2097151/2097152/2097153，含 C/M/全部 F 前缀与固定 domain | B 合法受其他限额；B+1 projected_batch_bytes；不先 flush 前缀再绕过 |
+| R5-09 | 多批 P_request=33554431/33554432/33554433；默认预算另测 16777216 | 重复 C/M/framing 开销累计；超限候选批整批丢弃，旧已提交批保留，无重复收费 |
+| R5-10 | 非正文 ID/JSON 空白/heartbeat/排除字段撑满 1MiB SSE event 或 64MiB wire request | 解析前入口拒绝/关闭上游；未知帧用 unknown_tail，不编造完整块数 |
+| R5-11 | 任一限额触发后检查 Artifact/progress/调用提案/terminal/gap | 当前拒绝批无 Artifact/tag/progress/自动提案；唯一 limit_exceeded terminal、complete=false；已知 gap/未知尾部准确 |
+| R5-12 | 超限候选同 ID/新 ID 重试、截断重试、收尾事务应答丢失 | 内容重试不成功、不恢复同流；只允许同幂等收尾/旧回执查询，无双 terminal 或重复计数 |
+
+边界样例生成需先固定合法投影并精确调整可变字段，再独立计算 expected Canonical/framing 长度以得到 B±1；若某组字段先触发另一更小限额，必须重新构造样例或降低所测目标预算以隔离边界，不能提高任何硬上限，也不能把早先错误当作目标限额已测试。所有关系/状态目前都是待实现要求，未执行 HMAC、Provider、数据库或工具测试。
+
+
 ### 8.1.2 HMAC 密钥生命周期与失败策略
 
 审计密钥与 Provider API Key 完全独立：K 为专用 CSPRNG 生成的 32 个随机字节，key_id 为随机不透明 ID。首次配置必须先将 K 持久化到 OS 安全密钥存储/密封 keyring，验证可读后才激活；不得每次进程启动重新生成同 key_id 的 K。Windows 目标采用当前用户作用域 OS 密封保护（如 DPAPI），密封文件放 Git 忽略的本地安全目录并限制 ACL；其他平台须提供等价受控 backend，否则该审计路径失败关闭，不降级为明文配置、API Key 或无密钥 SHA。
@@ -479,7 +590,7 @@ audit_complete=true 还要求 fingerprinted_batch_count=persisted_batch_count，
 
 发现批间缺号时不得以 next first_sequence 推断缺号已持久化；在同事务写 gap 记录和 model_stream_audit_gap。已知范围取已观测序号证据；未知丢失尾部只记录 unknown_tail。gap 不能用虚构 chunk 补齐。进度批按序提交，遇缺号可提交后续真实批但必须保留 gap；审计存储故障停止消费，不以“后续可能写入”推断完整。
 
-成功终结前 flush 尾批，计算覆盖必须恰为 [1,received_chunk_count]（0 对应空集），无 missing_ranges/unknown_tail，才 audit_complete=true。protocol_complete=true 还要求协议终结和可接受 finish_reason、完整参数校验；complete = protocol_complete AND audit_complete。协议已完整而审计缺失时 response_status=audit_incomplete，不返回可执行完整 response；协议失败维持 ProviderError.code/connection_interrupted/cancelled/internal_error/incomplete/limit_exceeded 等准确原因，同时独立记录 audit_complete=false。
+成功终结前 flush 合法尾批（R5 资源拒绝例外：当前批不提交，写 gap/limit_exceeded），计算覆盖必须恰为 [1,received_chunk_count]（0 对应空集），无 missing_ranges/unknown_tail，才 audit_complete=true。protocol_complete=true 还要求协议终结和可接受 finish_reason、完整参数校验；complete = protocol_complete AND audit_complete。协议已完整而审计缺失时一般 response_status=audit_incomplete；R5 预算拒绝则明确 response_status=limit_exceeded，不返回可执行完整 response；协议失败维持 ProviderError.code/connection_interrupted/cancelled/internal_error/incomplete/limit_exceeded 等准确原因，同时独立记录 audit_complete=false。
 
 gap 一旦提交就保留不可变；本设计不在同一请求里事后补齐该范围再提升成功。需恢复时只追加恢复说明/终结（如尚无终结），不得改旧终态或推断未观测内容。SQLite 全不可用时连 gap 也可能写不成，立即报告 audit_write_failed，不能声称 gap 已持久化；恢复根据已有 REQUESTED/批记录追加 interrupted 与未知尾部。
 
@@ -490,14 +601,14 @@ gap 一旦提交就保留不可变；本设计不在同一请求里事后补齐�
 | 表 | 主键和字段 | 约束 |
 |---|---|---|
 | model_requests | request_id PK；challenge_id、provider_id、model_id、requested_at、effective_mode、limits、audit_dataset_id、fingerprint_version、key_id、start_event_id UNIQUE | UNIQUE(challenge_id,request_id)；开始事件同题 FK；不可变 |
-| model_stream_progress | batch_id PK；challenge_id、request_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at、audit_dataset_id、fingerprint_version、key_id、content_fingerprint、batch_digest、event_id UNIQUE | UNIQUE(request_id,first_sequence)；CHECK first>=1、last>=first、chunk_count=last-first+1、计数非负；同题 request/event FK；与 request 的 dataset/version/key 一致；两 tag 均为 64 位小写 hex；不可变 |
+| model_stream_progress | batch_id PK；challenge_id、request_id、first_sequence、last_sequence、chunk_count、content_bytes_delta、tool_delta_count、first_received_at、last_received_at、audit_dataset_id、fingerprint_version、key_id、content_fingerprint、batch_digest、resource_usage、event_id UNIQUE | UNIQUE(request_id,first_sequence)；CHECK first>=1、last>=first、chunk_count=last-first+1、计数非负；同题 request/event FK；与 request 的 dataset/version/key 一致；两 tag 均为 64 位小写 hex；可存 f.3 resource_usage，不能作为 C/M 新字段或信任客户端统计；不可变 |
 | model_stream_gaps | gap_id PK；challenge_id、request_id、first_sequence、last_sequence?、extent_known、reason_code、event_id UNIQUE | UNIQUE(request_id,first_sequence)；已知区间 last>=first；未知尾部 last IS NULL；同题 request/event FK；不可变 |
 | model_terminals | request_id PK；challenge_id、terminal_event_id UNIQUE、status、complete、protocol_complete、audit_complete、累计字段 | 同题 request/event FK；所有状态至多一行终结；不可变 |
 | model_state | request_id PK；revision、phase、last_committed_sequence、observed_lower_bound | 可变投影；CAS，与相关事件/关系行同事务；不能代表未观测的上界 |
 | audit_datasets | audit_dataset_id PK、created_at | 本数据目录仅一条随机 UUID 身份记录，首次与审计初始化持久化；恢复沿用原 ID，不按路径重生成；request.dataset 外键引用 |
 | audit_key_versions | key_id PK；algorithm=HMAC-SHA256、fingerprint_version、keystore_locator、created_at | 仅非秘密清单；密钥生命周期见 §8.1.2，状态/轮换保留管理记录；key_id 不可绑定另一 secret；request.key_id 外键引用 |
 
-新批入库前强制使用 §8.1.1.b–d 的 strict integer、唯一 UTC 字符串和封闭字段验证；SQLite 列/范围约束须与 SAFE_MAX/INDEX_MAX 对齐。INTEGER affinity 或 Pydantic 默认 coercion 不能替代源 token 检查（1.0/字符串数字入库后可能已失去原表示），不得先强转后校验。历史 Event/Artifact schema 不因新协议限制被重建或改写。
+新批入库前强制使用 §8.1.1.b–d 的 strict integer、唯一 UTC 字符串和封闭字段验证，并先执行 f 的字符串/结构/精确投影预算；不得先完成缓冲/HMAC/SQL 写入再检查资源。SQLite 列/范围约束须与 SAFE_MAX/INDEX_MAX 对齐。INTEGER affinity 或 Pydantic 默认 coercion 不能替代源 token 检查（1.0/字符串数字入库后可能已失去原表示），不得先强转后校验。历史 Event/Artifact schema 不因新协议限制被重建或改写。
 
 批事件、批行、model_state 和 event_heads 同一 BEGIN IMMEDIATE 事务；先插 Event 再引用它。overlap 需 INSERT 触发器/同事务查询阻断：同请求存在 old.first <= new.last AND old.last >= new.first 即冲突，不只依赖 UNIQUE(first_sequence)。不能向已声明 gap 的区间补插批。终结前按实际批/缺口行重新校验累计量，之后禁止新批/gap。request 结束后的恢复说明作为 limitation，不插第二终结或篡改已冻结覆盖。
 
@@ -538,7 +649,7 @@ Chat Completions SSE 必须观察 [DONE] 且已看到支持的 stop/tool_calls �
 
 buffered 降级沿用同一请求审计协调器，但无 stream_started/progress，不生成假的 chunk_sequence；stream 专用累计字段统一 null，statistics_scope=not_applicable。真实 stream 的统计字段才按 §8.2，避免把未启用流式误计为“0 块完整流”。recorded_complete 不嵌套生成双 model_call。
 
-取消/消费端提前退出须有界 flush、关闭 HTTP、记录 cancelled 并保持原 CancelledError 实例。ProviderError 用其 code，其他 Exception 为 internal_error。原调用异常与审计异常并存时原异常优先，另报不含敏感文本的 audit_write_failed；正常响应遇审计失败不返回已审计成功。请求审计终结先于对调用者暴露最终完整响应。崩溃恢复总数未知必须使用 null/下界/unknown_tail，不制造终结证明。
+取消/消费端提前退出须有界 flush 合法尾批（若资源上限已触发则按 R5 丢弃当前批、记录 limit_exceeded，不能改记 cancelled 掩盖已知预算拒绝）、关闭 HTTP、记录对应终结状态并保持原 CancelledError 实例。ProviderError 用其 code，其他 Exception 为 internal_error。原调用异常与审计异常并存时原异常优先，另报不含敏感文本的 audit_write_failed；正常响应遇审计失败不返回已审计成功。请求审计终结先于对调用者暴露最终完整响应。崩溃恢复总数未知必须使用 null/下界/unknown_tail，不制造终结证明。
 
 ## 9. 测试用例清单（待后续实现，非已通过报告）
 
@@ -577,7 +688,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 | S04 | DONE 无 finish_reason、length、截断 arguments；时长/chunk/字节上限边界 | incomplete/invalid_response 或 limit_exceeded；即使覆盖全也不 complete；关闭上游，无提案 |
 | S05 | tool delta 分片跨批、重复 ID、多 choice、heartbeat/finish 控制帧 | chunk 计数按内容帧一次，非按 token/工具数；控制帧不占号；完整且无审计缺口才可转提案 |
 | S06 | async with 提前 break/aclose、重复 cancel、取消时尾批 flush | 关闭 HTTP；批重放无重复计数；一次 cancelled terminal；flush 失败显式 gap |
-| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间；同有效输入跨库/跨进程 bytes/MAC 一致，KAT golden 待冻结未运行；唯一终结 |
+| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量；§8.1.1.f.5 R5-01–R5-12 资源边界 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间；同有效输入跨库/跨进程 bytes/MAC 一致，KAT golden 待冻结未运行；超长 ID/UTF-8 边界、choices/tool 数量、累计 delta、record/batch/request 投影与入口预算超限立即拒绝，不落当前批/Artifact/自动提案，显式 gap/limit_exceeded；唯一终结 |
 | S08 | buffered 降级、complete 嵌套与空流 | 不伪造 progress/chunk 序号；stream 统计 not_applicable；无双 model_call；真正空流按协议证明与零内容统计判定 |
 | C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
 | C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
@@ -613,6 +724,7 @@ P1-1 public add_artifact/ingest/下载/去重契约不变。新增内部事务�
 二次复核结论：上述六项在设计层闭合，无阻止提交设计 PR 的剩余 blocker。其非阻塞建议也已采纳：定义 tool_output_captured，明确 capture_event_id 关联，保证复用同内容 Artifact 时仍保留本次捕获来源。
 
 该复核是架构文档审核，不是实现验收或运行安全批准；仍需用户指定审核人确认后再下发实现任务。
+
 
 
 
