@@ -408,9 +408,9 @@ V1 的固定预期 J(R_1) 为下行 UTF-8 内容（行末换行不属于字节�
 {"choices":[{"choice_index":0,"content":"中A"}],"chunk_sequence":1}
 ```
 
-其中 `中A` 的 UTF-8 hex 必须为 `e4b8ad41`；输入键顺序打乱或把中写成合法 JSON escape 后，仍得到上行字节。完整 canonical/framing/HMAC expected 必须按前述 golden 冻结流程补齐，不以“不同/相同”关系替代应有的具体输出值。
+其中 `中A` 的 UTF-8 hex 必须为 `e4b8ad41`；输入键顺序打乱或把中写成合法 JSON escape 后，仍得到上行字节。V1 的完整 canonical/framing/HMAC expected 已冻结于 `tests/fixtures/stream_content_v1_kat.json`，复现方式、摘要与执行范围见 `docs/STREAM_CONTENT_V1_KAT_FINAL.md`。
 
-**V1 Golden 候选（已由 Python 与 Node.js 独立计算并逐字节交叉一致；尚待复审后冻结）**
+**V1 Golden（已冻结；Python 与 Node.js 离线参考实现逐字节交叉一致）**
 
 固定 key：
 `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`
@@ -456,14 +456,14 @@ Canonical UTF-8 hex：
 "\"\\\u0000\b\t\n\f\r\u2028\u2029\ud83d\ude00"
 ```
 
-**V2/V3 Golden 候选摘要（Python 与 Node.js 独立计算一致；完整 framing hex 仍待补入 fixture）**
+**V2/V3 Golden 摘要（已冻结于 KAT fixture；Python 与 Node.js 离线参考实现逐字节交叉一致）**
 
 | 向量 | J(R_1) bytes | content message bytes | content_fingerprint | J(M) bytes | batch message bytes | batch_digest |
 |---|---:|---:|---|---:|---:|---|
 | V2 工具片段 | 161 | 554 | `6eb4f5c21a60752172c31d5f12406097745a8f44beaf427e225821e92726ad1c` | 641 | 682 | `184636adc641086fdcc1b8d2b3331ac58d18add5683a2d73e74111a11f9beda1` |
 | V3 特殊转义 | 94 | 487 | `1eb38a23e50cd057323999f0c62957d8a7c2271d54e513d42f2c36a8560b50b2` | 641 | 682 | `ed42d756080b00dbad1f573e3c8025079d2c657a48051f74eb982f2063607c4f` |
 
-V2 的 `function.arguments` 保持原始字符串 `{"n":1.0}`；V3 内容 UTF-8 长度为 18 bytes，包含 quote、反斜杠、NUL、BS、TAB、LF、FF、CR、U+2028、U+2029 与 U+1F600。以上摘要尚不是完整 KAT fixture；V2/V3 的 J(C)/J(R)/J(M) 与 F 消息完整 hex 仍需写入冻结文件。
+V2 的 `function.arguments` 保持原始字符串 `{"n":1.0}`；V3 内容 UTF-8 长度为 18 bytes，包含 quote、反斜杠、NUL、BS、TAB、LF、FF、CR、U+2028、U+2029 与 U+1F600。V2/V3 的完整 canonical、framing、消息 hex 与 MAC expected 均已写入冻结 fixture；本段摘要仅用于快速定位，不替代 fixture 中的逐字节 expected。
 
 拒绝码固定设计：非法 JSON 词法、NaN/Infinity/-Infinity 或非法 Unicode 为 invalid_json；解码后重复键为 duplicate_key；小数/指数 token、字符串/bool/null 冒充整数为 integer_type；整数负零为 noncanonical_integer；超界或不满足正/非负字段为 range_error；不合法时间串统一 timestamp_format；C/M 对应字段不一致为 context_mismatch。实现前冻结的 negative 向量应逐个对应唯一预期码，不能接受一组候选码。多种错误同时出现的向量不用于判定错误优先级，除非另行冻结了优先顺序。
 
@@ -703,7 +703,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 
 取消/消费端提前退出须有界 flush 合法尾批（若资源上限已触发则按 R5 丢弃当前批、记录 limit_exceeded，不能改记 cancelled 掩盖已知预算拒绝）、关闭 HTTP、记录对应终结状态并保持原 CancelledError 实例。ProviderError 用其 code，其他 Exception 为 internal_error。原调用异常与审计异常并存时原异常优先，另报不含敏感文本的 audit_write_failed；正常响应遇审计失败不返回已审计成功。请求审计终结先于对调用者暴露最终完整响应。崩溃恢复总数未知必须使用 null/下界/unknown_tail，不制造终结证明。
 
-## 9. 测试用例清单（待后续实现，非已通过报告）
+## 9. 测试用例清单（生产实现待后续执行；离线 KAT 状态见各项说明）
 
 全部使用合成字节、FakeRunner、MockTransport 和临时数据库；真实工具默认禁用。不用比赛题目附件、真实目标或 Flag。
 
@@ -740,7 +740,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 | S04 | DONE 无 finish_reason、length、截断 arguments；时长/chunk/字节上限边界 | incomplete/invalid_response 或 limit_exceeded；即使覆盖全也不 complete；关闭上游，无提案 |
 | S05 | tool delta 分片跨批、重复 ID、多 choice、heartbeat/finish 控制帧 | chunk 计数按内容帧一次，非按 token/工具数；控制帧不占号；完整且无审计缺口才可转提案 |
 | S06 | async with 提前 break/aclose、重复 cancel、取消时尾批 flush | 关闭 HTTP；批重放无重复计数；一次 cancelled terminal；flush 失败显式 gap |
-| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量；§8.1.1.f.5 R5-01–R5-12 资源边界 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间；同有效输入跨库/跨进程 bytes/MAC 一致，KAT golden 待冻结未运行；超长 ID/UTF-8 边界、choices/tool 数量、累计 delta、record/batch/request 投影与入口预算超限立即拒绝，不落当前批/Artifact/自动提案，显式 gap/limit_exceeded；唯一终结 |
+| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量；§8.1.1.f.5 R5-01–R5-12 资源边界 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间。离线参考 KAT 的 172 条固定向量（48 正向、124 精确错误码）已冻结并由 Python/Node.js 参考 runner 交叉执行通过，详见 `docs/STREAM_CONTENT_V1_KAT_FINAL.md`；这不代表生产实现或本行其余状态故障矩阵已运行。生产实现仍须验证同有效输入跨库/跨进程 bytes/MAC 一致；超长 ID/UTF-8 边界、choices/tool 数量、累计 delta、record/batch/request 投影与 HTTP/SSE 入口预算超限立即拒绝，不落当前批/Artifact/自动提案，显式 gap/limit_exceeded；唯一终结 |
 | S08 | buffered 降级、complete 嵌套与空流 | 不伪造 progress/chunk 序号；stream 统计 not_applicable；无双 model_call；真正空流按协议证明与零内容统计判定 |
 | C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
 | C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
