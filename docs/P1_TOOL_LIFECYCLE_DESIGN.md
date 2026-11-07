@@ -1,6 +1,6 @@
 # P1-2 工具生命周期与审计接口设计
 
-版本：0.3，2026-11-07；本次 R4 指纹修订基线：89be6021aa9022ca484dc6c663d3409f20437d5d；此前收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
+版本：0.4，2026-11-07；本次数值/规范序列化修订基线：6ad319ad147fa94e37bea183745fa91271f14b93；前次 R4 指纹修订基线：89be6021aa9022ca484dc6c663d3409f20437d5d；此前收敛基线：8c4073975bc25c2b50ad2a18ee768ce6547080c8。状态：设计提案，待独立审核；不是已实现能力说明。
 
 本轮只修改设计文档。本文为统一规范正文；[Review 补充文档](P1_TOOL_LIFECYCLE_REVIEW_ADDENDUM.md) 仅保留 R1–R4 的索引与检查记录，不另设覆盖正文的规则。不得改变 PR #1/#2 的代码、执行真实工具或开放模型网络 API。后续实现必须在独立实现分支通过审查；本文的 HTTP 路由、内部方法与数据库对象均为建议，不得在本轮注册或应用。
 
@@ -283,17 +283,159 @@ HMAC 使用标准构造（[RFC 2104](https://www.rfc-editor.org/rfc/rfc2104)）�
 
 精确定义（以下是字节协议规范，不是实现代码）：
 
-1. J(x)=UTF-8(canonical JSON(x))，沿用正文 canonical：键排序、无额外空白、ensure_ascii=false、禁止非有限数。字符串不 trim、不脱敏、不改换行、不做 Unicode normalization；拒绝无效 UTF-8/Unicode、重复 JSON 键及不符合已声明投影 schema 的字段类型，不能用 replacement 字符静默代替内容。
+1. J(x)=UTF-8(ctf-cjson-int-v1(x))，严格遵循下文 §8.1.1.b–d 的封闭字段类型、完整序列化和时间规则。字段校验在 J 之前；不能由 JSON 库默认数值/转义行为决定签名字节。此新批协议不替换既有 Event 的 canonical/hash。
 2. F(b)=U64BE(len(b)) || b；U64BE 为 8 字节无符号大端长度。所有拼接项有长度前缀，防止不同片段边界得到相同消息。
 3. 定义不可变 context C={fingerprint_version:"stream-content-v1", key_id, audit_dataset_id, challenge_id, request_id, batch_id, first_sequence, last_sequence, chunk_count}。audit_dataset_id 是数据目录创建时生成并持久化的随机 UUID，不从路径推导。原有批大小与序号校验不变。
 4. 对区间内每个 i，R_i=J({chunk_sequence:i, choices:[...]})。choices 保持接收数组顺序；每项包括 choice_index、实际存在的 content 字符串，以及按接收顺序的 tool_deltas。每个工具增量保存实际存在的 index、id、type 和 function.name/function.arguments 字符串片段；不将 arguments JSON 解析后再序列化以代替原片段。缺失字段省略，显式 null 保留，二者不同。公开 content 与工具参数的实际字符串 UTF-8 字节都进入计算；同一帧有两类内容都覆盖。字段类型与允许 null 的范围由 stream-content-v1 schema 固定，未知公开 delta 字段拒绝/版本升级，不能静默丢弃后还宣称完整。
 5. content_fingerprint = lowercase_hex(HMAC-SHA256(K[key_id], F(ASCII("CTF/model-stream/content/v1")) || F(J(C)) || F(R_first) || ... || F(R_last)))。
-6. M 为 §8.1 批 payload 中全部不可变字段加 audit_dataset_id、challenge_id、request_id、provider_id、model_id、fingerprint_version、key_id、content_fingerprint，唯独排除 batch_digest 本身。M 包括接收时间戳、计数和区间；不包括之后生成的 Event event_id/sequence/occurred_at/哈希，避免循环。
+6. M 恰为 §8.1.1.b 穷举的 16 个字段，涵盖原批 payload 的身份、时间戳、计数/区间与 content_fingerprint，不包含 batch_digest 自身或后生成的 Event envelope，避免循环。未知字段不能因“全部元数据”自动加入 HMAC，扩展需新版本。
 7. batch_digest = lowercase_hex(HMAC-SHA256(K[key_id], F(ASCII("CTF/model-stream/batch/v1")) || F(J(M))))。不同 domain 字符串分隔内容和元数据认证；两个输出均为 64 个小写十六进制字符。比较使用常量时间比较，不用前缀/截断匹配。
 
 这里保护的是**协议解析后、未改写的公开内容/工具增量投影字节与顺序**，不是 TCP/TLS/SSE 原始 wire 字节；JSON escape 等不同但解码值相同的传输形式视为同一公开内容。不包含私有推理、heartbeat、finish 控制帧，也不证明其内容完整；协议终结与 finish_reason 仍单独校验。增加/删除内容块、改变 chunk 边界或任一工具增量、call id、序号或上下文，均会改变指纹（以密码算法碰撞概率为限）。统计 content_bytes_delta 的口径不变；即使计数字节数相同，指纹仍覆盖实际字节。
 
 受信接收层在有界内存中持有本批 R_i，冻结原始 context、元数据和 batch_id 后计算两层 HMAC；仅持久化标识、元数据及两个 tag，不写 R_i、正文或独立逐块明文哈希。重试沿用冻结的接收时间/字段，不能用重试时间替换原时间。只有受信接收层可生成指纹，不接受客户端/Provider 提交的“已计算 tag”作为实际内容验证。提交成功或有界重试结束后清除内容缓冲；不将中间 HMAC 状态/正文写磁盘。若同一进程中仍有真实候选内容，必须重算 content_fingerprint，再算 batch_digest，不能只比较候选计数或复用旧 tag。
+
+#### 8.1.1.a 既有契约核对与适用范围
+
+已核对 P1-1 固定提交 `778bad7c6db0f4412ce3c55bca0c24b78ad66905`（含 P0.1）：models.py 的 Event.sequence 是 ge=1 的 int；Artifact.size 是 ge=0 的 int；时间字段为 str，now() 使用 datetime.now(timezone.utc).isoformat()；store.canonical 使用 Python json.dumps(sort_keys=True,separators=(',',':'),ensure_ascii=False,allow_nan=False)。providers.py 现有 ToolCall.arguments 是 dict，而 stream 累积的 function.arguments 是未解析的字符串片段。现有模型未为 choice/tool index 或本节新增批字段设定跨语言数值边界。
+
+以下规则只冻结**新 stream-content-v1 的 C、R_i 和 M**，不改变旧 Event.sequence、Artifact.size、ToolCall.arguments 或既有事件的字符串/哈希。批内 chunk_count 为正整数；§8.2 的 terminal.chunk_count/received_chunk_count 仍允许零或按原恢复语义为 null，不能把批限制套到终结统计。§8.1 的运行限额另行适用，协议数值范围不是扩大限额的许可。尚未实现的 v1 草稿现在才冻结字节形式；若已有自行实现的宽松草稿，须按旧版本标记，不得用本规范重签历史或静默解释成新字节。
+
+#### 8.1.1.b C、R_i、M 的封闭字段与数值类型
+
+统一整数上界 SAFE_MAX=9007199254740991（2^53−1），索引上界 INDEX_MAX=2147483647（2^31−1）。JSON 输入整数必须是无小数点、无指数的十进制整数 token；禁止 1.0、1e0、NaN、Infinity、-Infinity、溢出、负零和字符串数字自动转换。bool 不是整数（尤其 Python 的 bool 不得按 int 接受）。负数不满足下列字段范围。解析时须在丢失 token 信息之前检查；不能依赖会把 1.0/1e0 与 1 合并的普通 JSON 解析器或宽松 schema coercion。
+
+跨语言接收原 JSON 时需保留/检查原始 token 与重复键；JSON.parse 后再仅用“值为整数”判断不足以拒绝源 token 1.0。内部构造必须走明确的整数类型构造契约并校验范围，不能先以浮点数或字符串保存再强制转换。不得把浮点数四舍五入后签名。整数加法/区间长度/字节计数使用可验证的精确整数算术，运算超界即拒绝。
+
+| 对象与字段（穷举） | 必需性/类型与范围 | 原义与校验 |
+|---|---|---|
+| C.fingerprint_version；M.fingerprint_version | 必需字符串，精确为 stream-content-v1 | 绑定本次冻结的序列化和投影规则 |
+| C/M.audit_dataset_id、challenge_id、request_id、batch_id | 必需字符串，服务端 UUID 的小写 8-4-4-4-12 十六进制标准形式 | 保留原数据集/题目/请求/批次身份；不得在重试时换值 |
+| C.key_id；M.key_id | 必需非空字符串，不允许 null；字节不正规化 | 保留原不透明密钥 ID，不是密钥本身 |
+| C/M.first_sequence、last_sequence、chunk_count | 必需严格正整数，1..SAFE_MAX | last>=first，chunk_count=last-first+1；再校验批/请求生效限额 |
+| R_i.chunk_sequence | 必需严格正整数，1..SAFE_MAX | 必须按 first..last 恰一次连续出现 |
+| R_i.choices | 必需非空数组 | 保持接收顺序，不能排序；元素仅允许下述 choice 对象 |
+| choice.choice_index | 必需严格整数，0..INDEX_MAX | 对应原 choice.index，零合法；不擅自改成从 1 开始 |
+| choice.content | 可缺失；出现时为字符串或显式 null | 空串、null、缺失各不同；实际内容不改写 |
+| choice.tool_deltas | 可缺失；出现时为数组，允许 []，不允许 null | 元素为下述 tool 对象；保持原接收顺序 |
+| tool.index | 必需严格整数，0..INDEX_MAX | 对应原工具增量 index，零合法；不按 call_id 排序 |
+| tool.id | 可缺失；出现时为字符串，不允许 null | 保留增量 call id 字符串（可为空片段）；完整调用的非空检查仍在流终结阶段 |
+| tool.type | 可缺失；出现时为字符串 function，不允许 null | 未支持类型拒绝，不静默丢弃 |
+| tool.function | 可缺失；出现时为对象，不允许 null | 对象只允许下述两个可缺失字段 |
+| tool.function.name、tool.function.arguments | 可缺失；出现时为字符串，不允许 null | 原始片段；例如 arguments 字符串中的 1.0、1e0 仍为正文，不能解析成外层数字或改写 |
+| M.provider_id、model_id | 必需非空字符串，不允许 null | 保持 Provider 配置的标识，不 trim、不改大小写 |
+| M.content_bytes_delta、tool_delta_count | 必需严格非负整数，0..SAFE_MAX | 按 §8.1 原计数口径，精确累计后校验限额；零合法 |
+| M.first_received_at、last_received_at | 必需字符串，不允许 null | 唯一时间格式见下文，不用浮点 epoch |
+| M.content_fingerprint | 必需字符串，64 个小写 ASCII 十六进制字符 | 32 字节完整内容 HMAC 的 hex；不是可替换的任意字符串 |
+
+C **恰有**上表中 9 个字段：fingerprint_version、key_id、audit_dataset_id、challenge_id、request_id、batch_id、first_sequence、last_sequence、chunk_count。
+
+M **恰有** 16 个字段：C 的这 9 个字段加 provider_id、model_id、content_bytes_delta、tool_delta_count、first_received_at、last_received_at、content_fingerprint。不含 batch_digest 自身和 Event envelope，不因“全部元数据”措辞而自动纳入未来新增字段。新增签名字段需新版本。M 与 C 的共同字段逐值一致。
+
+R_i 恰含 chunk_sequence/choices；choice、tool、function 仅允许表列字段。仅 choice.content 可显式 null，其余可缺失字段如出现必须满足其类型。缺失字段不自动补 null/空数组/空字符串；需要保留 absence，不能由 DTO 默认值消除差别。未知字段拒绝/版本升级；已知私有推理/控制帧按 §8.1 的排除规则处理，不纳入本投影。
+
+#### 8.1.1.c Canonical JSON 的完整字节规则
+
+本协议定义 **ctf-cjson-int-v1 整数受限 profile**，由 fingerprint_version=stream-content-v1 隐含绑定，不宣称是通用 JSON Canonicalization 标准。所有实现必须先通过上表严格类型检查，再执行如下序列化；不能仅声称“使用某 JSON 库默认设置”。
+
+1. 文本编码为严格 UTF-8，无 BOM，无文末换行；F 的 len 是这些 UTF-8 **字节**数，不是字符数/UTF-16 code unit 数。输入如有 BOM 拒绝。F 的长度用精确无符号整数编码为 8 字节大端；实际长度受运行限额约束，不能截断或取模。
+2. 对象键为 Unicode scalar 字符串，按解码后 scalar value 的数值序列作词典序升序（前缀相同则较短者先），不用 locale、UTF-16 code unit、转义后字符串或 UTF-8 库默认比较替代。当前封闭 schema 的键均为 ASCII；数组严格保持原顺序。
+3. 每个字符串以双引号包围。精确转义：U+0022 用 `\"`，U+005C 用 `\\`；U+0008/0009/000A/000C/000D 分别用 `\b`/`\t`/`\n`/`\f`/`\r`。其他 U+0000..001F 用小写六字符 `\u00xx`（小写 hex）。不得用等价长转义替代上述短转义。
+4. 其余所有合法 Unicode scalar 按 UTF-8 原样输出，包括 `/`、U+007F、中文、U+2028/U+2029 和非 BMP 字符；不得转义为 `\/`、`\u4e2d`、surrogate escape 或 HTML-safe 形式，不额外转义 `<`/`>`/`&`。不执行 NFC/NFD、trim、换行归一化或大小写折叠；因此预组合字符与分解字符通常是不同输入。
+5. 拒绝孤立 surrogate、非法 UTF-8、无效 surrogate 对；合法 JSON surrogate pair 输入解码成对应 scalar 后直接输出 UTF-8，不能保留两个 surrogate。禁用 replacement 解码和静默修复。字面 U+FFFD 若本来就是输入 scalar 则按字节保留，区别于解码器补造它。
+6. 对象用 `{}`、数组用 `[]`、成员间用 `,`、键值间用 `:`；分隔符前后均无空格、缩进、换行。字符串内空白必须保留/按第 3 点转义，不能删除。
+7. 整数唯一输出为无符号最短十进制 ASCII：零只写 `0`，正数不写前导零/加号/小数点/指数。所有协议数值字段非负；负零拒绝，不把它规范为零。JSON 原输入的 `01`、`+1` 本身也非法。null（仅允许字段处）输出 `null`；bool 在本封闭 schema 没有合法位置，不能作为计数或索引。
+8. 重复对象键在原始 JSON **任何层级**先行拒绝；按解码后的键比较，所以 `content` 与 `\u0063ontent` 是重复键。必须在转成 dict/map 丢弃重复项前判定；禁止 first-wins/last-wins。合法源对象键顺序不影响 J，合法等价转义不影响解码后的 J。
+
+在本 profile 的合法输入域内，Python 的现有 sort_keys=True、separators=(',',':')、ensure_ascii=False、allow_nan=False 与上述输出形式一致；**这些参数本身不代替严格输入校验**，例如 Python 默认解析重复键、整数/布尔关系、JS 对小数 token 的折叠均需另外处理。本规则不修改 store.canonical，也不重算任何 P0/P1-1 事件哈希。
+
+#### 8.1.1.d 唯一 UTC 时间戳及兼容边界
+
+M.first_received_at / last_received_at 唯一形式为 `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`：年份四位 0001..9999，公历真实日期，24 小时制，ASCII 数字、大写 T，秒 00..59，**固定六位微秒**（零为 `.000000`），固定后缀 `+00:00`。总长 32 个 ASCII 字节；不允许省略小数秒、1/3/9 位小数、Z、-00:00、非零偏移、空格或闰秒 `:60`。年月日和时间必须语义有效，不能只用正则放行。时间作为字符串进入 J，无额外数值字段。
+
+新接收层从可信 datetime/时钟值转换为 UTC、以微秒精度生成一次上述字符串后冻结；原生时钟精度高于微秒时对**该瞬间的 UTC 微秒轴向下取整**（不四舍五入），不能由不同语言采用不同截断方式。字符串输入到 HMAC 校验层时必须已经符合唯一形式；不把 Z/偏移/缺省小数静默改写后再验 MAC。重试保留原串，不使用重试时间。超时先后仍使用运行器单调时钟，不以墙上时间排序决定因果。
+
+既有 now().isoformat() 生成 UTC `+00:00`，但微秒为零时可能省略 `.000000`；这不是历史数据损坏。保留所有历史 Event.occurred_at/Artifact.ingested_at 等原始字符串及其哈希，不升级为强制六位格式。新 M 的固定精度是在现有 UTC/ISO8601 约定上收紧**新协议字段**，并不将该收紧追溯应用到旧 Event。Event envelope 不在 M 内；不把旧 occurred_at 直接塞进 M 充当接收时间，也不将回溯录入时间替代实际接收时间。
+
+#### 8.1.1.e 跨语言 Known-Answer Test（KAT）设计，尚未运行
+
+KAT 必须先冻结向量文件，再分别由 Python 和至少一种非 Python 实现验证，禁止测试运行时用被测实现生成“期望值”。fixture 完整包含：version、固定测试 key 的 hex、C、按序 R_i、M 非 tag 字段、期望 J(C)/R_i/J(M) 的完整 UTF-8 hex、每个 F 项的长度前缀/拼接消息 hex、期望 content_fingerprint 和 batch_digest 的完整 64 位 hex、非法向量的固定拒绝码。两套独立参考实现一致并经复核后才能冻结这些 expected 值；运行进程/locale/JSON 库可变，expected 不可变。
+
+本轮只定义设计，**不实现/运行 HMAC，不计算或虚构期望 MAC hex**；实际 MAC、完整 framing hex 的 golden 文件待实现阶段独立生成冻结，未冻结之前不能宣称已有可执行 KAT 或 KAT 通过。以下固定输入与可直接读出的序列化期望用于定义该 golden 文件，不是已通过的测试报告。
+
+公开合成测试 key（固定字节，不是随机生成的真实审计密钥；禁止用于生产）：
+
+```text
+000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+```
+
+固定基准向量 V1（下列 JSON 为输入展示，排版空白不属于 canonical bytes）：
+
+```json
+{
+  "C": {
+    "fingerprint_version": "stream-content-v1",
+    "key_id": "synthetic-kat-key-v1",
+    "audit_dataset_id": "00000000-0000-0000-0000-000000000001",
+    "challenge_id": "00000000-0000-0000-0000-000000000002",
+    "request_id": "00000000-0000-0000-0000-000000000003",
+    "batch_id": "00000000-0000-0000-0000-000000000004",
+    "first_sequence": 1,
+    "last_sequence": 1,
+    "chunk_count": 1
+  },
+  "records": [{"chunk_sequence": 1, "choices": [{"choice_index": 0, "content": "中A"}]}],
+  "M_extra": {
+    "provider_id": "synthetic",
+    "model_id": "synthetic-model",
+    "content_bytes_delta": 4,
+    "tool_delta_count": 0,
+    "first_received_at": "2026-11-07T00:00:00.000000+00:00",
+    "last_received_at": "2026-11-07T00:00:00.000000+00:00"
+  }
+}
+```
+
+M 由 C 的九字段加 M_extra 六字段，再加本向量 golden content_fingerprint 组成，恰为 16 字段。KAT fixture 应存储展开后的 M，不能让被测实现自行补未知字段或在运行时重写 expected。
+
+V1 的固定预期 J(R_1) 为下行 UTF-8 内容（行末换行不属于字节）：
+
+```text
+{"choices":[{"choice_index":0,"content":"中A"}],"chunk_sequence":1}
+```
+
+其中 `中A` 的 UTF-8 hex 必须为 `e4b8ad41`；输入键顺序打乱或把中写成合法 JSON escape 后，仍得到上行字节。完整 canonical/framing/HMAC expected 必须按前述 golden 冻结流程补齐，不以“不同/相同”关系替代应有的具体输出值。
+
+固定工具投影向量 V2：沿用 V1 的 key/C/M 时间，将 R_1 替换为下行，M.content_bytes_delta=10（name 的 1 字节加 arguments 的 9 字节）、tool_delta_count=1；M.content_fingerprint 随本向量重新冻结。arguments 内的 1.0 是字符串正文，合法且必须原样进入 MAC：
+
+```json
+{"chunk_sequence":1,"choices":[{"choice_index":0,"tool_deltas":[{"index":0,"id":"call-A","type":"function","function":{"name":"f","arguments":"{\"n\":1.0}"}}]}]}
+```
+
+附加固定转义输入 V3：沿用 V1，仅将 content 替换为以下 JSON 字符串值；其实际 UTF-8 长度为 18，故 M.content_bytes_delta=18、tool_delta_count=0。其余关联值不变，两个 tag 独立冻结。
+
+```json
+"\"\\\u0000\b\t\n\f\r\u2028\u2029\ud83d\ude00"
+```
+
+拒绝码固定设计：非法 JSON 词法、NaN/Infinity/-Infinity 或非法 Unicode 为 invalid_json；解码后重复键为 duplicate_key；小数/指数 token、字符串/bool/null 冒充整数为 integer_type；整数负零为 noncanonical_integer；超界或不满足正/非负字段为 range_error；不合法时间串统一 timestamp_format；C/M 对应字段不一致为 context_mismatch。实现前冻结的 negative 向量应逐个对应唯一预期码，不能接受一组候选码。多种错误同时出现的向量不用于判定错误优先级，除非另行冻结了优先顺序。
+
+| KAT | 固定输入/变体 | 预期输出设计要求（待冻结/验证） |
+|---|---|---|
+| K01 同输入不同库 | V1，Python 与第二语言、不同 locale | 完整 J/F 消息 hex 与两个 golden MAC 全部逐字节相同 |
+| K02 数值类型/范围 | V1 每个整数逐项替换为 1.0、1e0、"1"、true、-0、负数、SAFE_MAX+1；索引替换为 INDEX_MAX+1；解析输入 NaN/Infinity/-Infinity | 按上述逐项固定拒绝码，HMAC 前拒绝；不能自动转换。零只对非负字段合法；正整数字段的零拒绝 |
+| K03 缺失/null | V2 保持工具内容，分别缺失 choice.content 与显式 content:null（工具与计数不变） | 固定不同 J 与不同 content_fingerprint；两组具体 MAC hex 必须各自冻结。null 放到必需整数/字符串或 tool 字段则拒绝 |
+| K04 Unicode/转义 | V1 中文+英文；V3 特殊字符；另固定 content 为 U+00E9 与 U+0065 U+0301 的两个向量（对应 bytes_delta 为 2 与 3） | scalar、短转义/小写 hex 与 UTF-8 一致；U+1F600 为 f09f9880；孤立 surrogate/非法 UTF-8 拒绝；两种规范化形式保留不同字节 |
+| K05 键序 | V1 对 C/M 与 R_i 对象做固定逆序，数组不动 | canonical 与 golden MAC 相同；数组次序/分块变化另有不同具体 MAC |
+| K06 重复键 | V1 JSON 文本在 choice 中同时出现 content 和 \u0063ontent | duplicate_key；不得 last-wins；嵌套 function 对象同样覆盖 |
+| K07 同长度不同正文 | V1 中A→文A，长度均为 4，其他元数据不变 | 两个不同的固定 content_fingerprint，继而不同 batch_digest；重放冲突 |
+| K08 上下文绑定 | V1 batch_id 最后一段 000000000004→000000000005，C/M 同步 | 两个不同的固定 MAC；只改 C 或只改 M 先 context_mismatch |
+| K09 进程确定性 | V1 固定 key/输入在两个全新进程 | 与同一 golden 两 MAC 相同；禁止随机 key、当前时间或环境 locale 进入向量 |
+| K10 时间唯一性 | V1 接收时间分别替换为无小数、.000、Z、+08:00、-00:00、秒60、非法日期、九位小数 | timestamp_format；正确六位 +00:00 保持 golden；不把旧 Event 的合法无小数写法当历史损坏 |
+| K11 边界/无强转 | 对字段级 validator 固定测试 1、SAFE_MAX、0、INDEX_MAX（按各自范围）；V2 arguments 的字符串数字保持原状 | 合法边界唯一十进制 bytes；再受批/运行限额校验；字符串参数不触发外层数字转换 |
+
+K04 的 V3 在 golden 文件中必须显式列出上述全部 code point/输入 bytes 与预期完整 canonical hex，不能只写“含特殊字符”。K05 数组/分块对照也须有完整固定记录。每条 negative 向量只引入一个所测错误，使用上述固定预期码，不能在测试运行时任意接受任一错误。
+
 
 ### 8.1.2 HMAC 密钥生命周期与失败策略
 
@@ -354,6 +496,8 @@ gap 一旦提交就保留不可变；本设计不在同一请求里事后补齐�
 | model_state | request_id PK；revision、phase、last_committed_sequence、observed_lower_bound | 可变投影；CAS，与相关事件/关系行同事务；不能代表未观测的上界 |
 | audit_datasets | audit_dataset_id PK、created_at | 本数据目录仅一条随机 UUID 身份记录，首次与审计初始化持久化；恢复沿用原 ID，不按路径重生成；request.dataset 外键引用 |
 | audit_key_versions | key_id PK；algorithm=HMAC-SHA256、fingerprint_version、keystore_locator、created_at | 仅非秘密清单；密钥生命周期见 §8.1.2，状态/轮换保留管理记录；key_id 不可绑定另一 secret；request.key_id 外键引用 |
+
+新批入库前强制使用 §8.1.1.b–d 的 strict integer、唯一 UTC 字符串和封闭字段验证；SQLite 列/范围约束须与 SAFE_MAX/INDEX_MAX 对齐。INTEGER affinity 或 Pydantic 默认 coercion 不能替代源 token 检查（1.0/字符串数字入库后可能已失去原表示），不得先强转后校验。历史 Event/Artifact schema 不因新协议限制被重建或改写。
 
 批事件、批行、model_state 和 event_heads 同一 BEGIN IMMEDIATE 事务；先插 Event 再引用它。overlap 需 INSERT 触发器/同事务查询阻断：同请求存在 old.first <= new.last AND old.last >= new.first 即冲突，不只依赖 UNIQUE(first_sequence)。不能向已声明 gap 的区间补插批。终结前按实际批/缺口行重新校验累计量，之后禁止新批/gap。request 结束后的恢复说明作为 limitation，不插第二终结或篡改已冻结覆盖。
 
@@ -433,7 +577,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 | S04 | DONE 无 finish_reason、length、截断 arguments；时长/chunk/字节上限边界 | incomplete/invalid_response 或 limit_exceeded；即使覆盖全也不 complete；关闭上游，无提案 |
 | S05 | tool delta 分片跨批、重复 ID、多 choice、heartbeat/finish 控制帧 | chunk 计数按内容帧一次，非按 token/工具数；控制帧不占号；完整且无审计缺口才可转提案 |
 | S06 | async with 提前 break/aclose、重复 cancel、取消时尾批 flush | 关闭 HTTP；批重放无重复计数；一次 cancelled terminal；flush 失败显式 gap |
-| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；唯一终结 |
+| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间；同有效输入跨库/跨进程 bytes/MAC 一致，KAT golden 待冻结未运行；唯一终结 |
 | S08 | buffered 降级、complete 嵌套与空流 | 不伪造 progress/chunk 序号；stream 统计 not_applicable；无双 model_call；真正空流按协议证明与零内容统计判定 |
 | C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
 | C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
@@ -469,6 +613,7 @@ P1-1 public add_artifact/ingest/下载/去重契约不变。新增内部事务�
 二次复核结论：上述六项在设计层闭合，无阻止提交设计 PR 的剩余 blocker。其非阻塞建议也已采纳：定义 tool_output_captured，明确 capture_event_id 关联，保证复用同内容 Artifact 时仍保留本次捕获来源。
 
 该复核是架构文档审核，不是实现验收或运行安全批准；仍需用户指定审核人确认后再下发实现任务。
+
 
 
 

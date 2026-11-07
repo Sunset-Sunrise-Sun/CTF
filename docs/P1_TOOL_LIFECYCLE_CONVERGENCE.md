@@ -49,7 +49,7 @@ PR 描述同步更新，保持 Draft，等待独立验收；本轮不授权实�
 
 
 
-## R4 内容完整性最终修订：修改前后
+## 前次 R4 内容完整性修订：修改前后（历史记录）
 
 | 项目 | 修改前 | 修改后 |
 |---|---|---|
@@ -96,9 +96,59 @@ PR 描述同步更新，保持 Draft，等待独立验收；本轮不授权实�
 - 正文、补充索引的批 PK/序号/计数规则保留；补充文档继续引用正文，不新增另一套指纹算法。
 - 仅检查文本声明、公式字段及围栏配对；没有运行 HMAC 测试向量或密码学实现，没有执行 S07/SQLite/故障恢复测试，不把本节当作测试通过报告。
 
-### 本次修改文件
+### 前次 R4 内容指纹修改文件（历史记录）
 
 1. docs/P1_TOOL_LIFECYCLE_DESIGN.md：§8.1–§8.3、schema、S07 和版本。
 2. docs/P1_TOOL_LIFECYCLE_CONVERGENCE.md：修改前后差异、公式索引、幂等矩阵与静态检查。
 
 本轮不修改补充索引，不新增 Python/SQL Migration，不运行模型或工具。尚待实现的 OS keystore backend、密钥备份恢复、HMAC/序列化与攻击性重放测试均未实现/验证。PR #3 保持 Draft，等待独立复审；不授权下发实现或合并。
+
+
+
+## R4 数值类型与规范序列化收尾
+
+本轮父基线：6ad319ad147fa94e37bea183745fa91271f14b93。只解决确定性，不改变 HMAC 两层结构、批主键、取消流程或执行能力。
+
+### 数据契约核对与修改前后差异
+
+已核对 P1-1 固定提交的 models.py、providers.py、store.py：Event.sequence=ge1 int，Artifact.size=ge0 int；时间 str/UTC now().isoformat()；Python sort_keys/minimal separators/ensure_ascii=false/allow_nan=false；tool arguments 完整对象与 stream 参数片段字符串是两种不同边界。
+
+| 项目 | 修改前 | 修改后（正文 §8.1.1） |
+|---|---|---|
+| 字段类型 | “字段类型符合 schema”但未穷举数值域 | b：C 9 字段、M 16 字段及所有 R_i 嵌套字段；正整数/非负/索引各有范围，缺失/null 明确 |
+| 数值 | JSON 库可能合并 1/1.0/1e0 或强转字符串 | token 级严格整数；SAFE_MAX=2^53−1、INDEX_MAX=2^31−1；bool/负零/超界/非有限数拒绝，不能强转 |
+| Canonical | Python 参数近似描述 | c：UTF-8 无 BOM、scalar 键序、完整转义/空白/最短整数规则、缺失/null、Unicode/surrogate/重复键规则 |
+| 时间 | 仅 UTC，精度未冻结 | d：新 M 固定 YYYY-MM-DDTHH:MM:SS.ffffff+00:00，六位微秒，拒绝省略/偏移/Z/闰秒；旧 Event 原字节不动 |
+| KAT | 仅同长度异内容/重启等关系测试 | e：固定合成 key、V1–V3/固定变体、canonical 字节样例、完整 golden 输出文件要求和 K01–K11；没有计算 MAC 或宣称运行通过 |
+| S07/入库边界 | 未明确跨库数值/格式差异 | 链接 K01–K11，SQL/Pydantic affinity/coercion 不能代替源 token 校验；不创建迁移 |
+
+### 新增类型/Canonical/时间规范索引
+
+- 正整数 first/last/chunk_count/chunk_sequence：1..9007199254740991；choice_index/tool.index：0..2147483647；content_bytes_delta/tool_delta_count：0..9007199254740991。仍受较小运行限额约束，不扩大容量。
+- bool、float/指数 token、字符串数字、负零、NaN/Infinity、越界均拒绝；tool.function.arguments 内部出现数字仍是未经改写的字符串正文，不对其做 HMAC 外层整数转换。
+- C/M 字段闭合清单与 R_i 可选/null 规则见正文表；terminal.chunk_count 的 0/null 恢复语义不受批正整数规则影响。
+- 对象按解码后 Unicode scalar 排序，数组不排序；完整 JSON 字符串转义、最短十进制、UTF-8/长度 framing、重复键先验拒绝均由 profile 冻结，不由库默认行为决定。
+- 新 M 时间固定六位微秒 +00:00；旧 now().isoformat() 在零微秒时省略小数依旧合法，不重算历史事件哈希。输入校验不把非规范时间悄悄归一化；可信接收层生成后冻结。
+
+### Known-Answer Test 设计与未完成边界
+
+固定公开 synthetic key 为 hex 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f，非真实审计密钥，不调用随机生成器。正文提供固定 C/R_i/M 非 tag 字段的 V1 中文文本、V2 工具片段、V3 转义输入及固定变体。
+
+未来 golden 文件必须预先冻结完整 J(C)/R_i/J(M) 与 F 拼接消息 hex、两个完整 MAC hex、每个非法输入的唯一预期码；Python 和至少一种非 Python 参考实现独立生成比对、复核后冻结，被测实现不能运行时生成自己的 expected。
+
+本轮给出可人工读出的 canonical R_1 期望、中文/emoji 编码、各变体的预期同/异/拒绝关系；**没有计算完整 MAC/golden framing，也未实现 HMAC 或生成实际审计 key**。实际 golden 文件待实现阶段生成；当前不可宣称已有可执行 KAT 或跨语言验证通过。
+
+### 静态一致性检查结果
+
+已对照正文定义、公式输入、字段表、schema 建议和 S07：C/M 分别封闭为 9/16 字段，R_i 各层明确必需/可选/null；相同字段类型与范围一致；每个时间字段指向唯一格式；序列化 profile 不取代 Event 哈希；KAT key/输入/expected 设计要求与未运行标记齐全。批主键和 HMAC 域字符串未改变。
+
+自动文本扫描仅核对声明/链接/围栏和指定文档路径；数值/时间/转义的设计审查不是 HMAC、JSON 库或数据库运行测试。未运行 K01–K11、S07、SQL/并发恢复或真实模型/工具调用，未渲染 Mermaid。完整黄金 MAC 尚未产出，仍待独立复审。
+
+本次 11 项静态/样例检查结果一致：C 九字段、展开 M 十六字段、V1/V2/V3 的输入 UTF-8 长度分别为 4/10/18、K01–K11 清单齐全、整数边界声明、Canonical 规则声明、时间格式声明、golden 未计算标记、Markdown 围栏配对。样例检查只读取固定 JSON 展示块并核对字段/字节数，不是跨语言 Canonical 或 HMAC 向量运行。
+
+### 本轮修改文件
+
+1. docs/P1_TOOL_LIFECYCLE_DESIGN.md：版本、§8.1.1 完整确定性规范/KAT、§8.3 入库边界说明、S07。
+2. docs/P1_TOOL_LIFECYCLE_CONVERGENCE.md：契约核对、差异、规范索引、KAT 设计边界与静态检查。
+
+不修改 main、PR #1/#2、Python 功能代码或迁移；不启用模型/工具；PR #3 保持 Draft，未合并。旧轮次检查记录只作历史记录，不表示本轮已获独立验收。
