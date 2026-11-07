@@ -219,3 +219,21 @@ DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Pr
 独立复审指出旧名 `max_wire_request_bytes` 与实际限制的 Provider 返回 SSE 流方向不一致，已统一为 `max_upstream_response_body_bytes`。数值不变：默认 32MiB、硬上限 64MiB。该值统计单次 Provider HTTP response body octets：HTTP status line/headers 与 HTTP transfer framing 不计；请求要求 `Accept-Encoding: identity`，非 identity Content-Encoding 拒绝；body 中 SSE/JSON/framing、空白、注释/heartbeat、DONE、未知字段及被投影排除内容均计入，非 2xx body 若读取亦计入。单 event 的 `max_sse_event_bytes` 从首字节计至结束空行（含空行）；不完整尾部同样实时受限。重定向不跟随；超限不自动重试/重连，显式新调用使用新 request_id 与独立预算。细节以 DESIGN §8.1.1.f.2 为唯一规范。
 
 本次只做文档术语与计数对象澄清，不改变预算数值、HMAC 算法、C/M 字段或内容计数口径。复核范围为 DESIGN 的所有相关引用、R5-10、CONVERGENCE 与 PR 描述；未运行 HTTP 传输层或 Provider 测试。
+
+## V1 Golden KAT 参考向量生成与交叉核对
+
+本轮基于 DESIGN §8.1.1.e 的固定 V1 输入和公开 synthetic key，补齐 V1 的完整 Canonical/framing 字节与两层 HMAC 输出。仅冻结候选向量，不将整个 KAT 套件标记为通过。
+
+| 项目 | 固定值 |
+|---|---|
+| J(C) | 342 bytes |
+| R_1 | 68 bytes |
+| content HMAC message | 461 bytes |
+| content_fingerprint | `3f57d082c5c48a274da05be826512e78ba69022f726e2944c17edc864d3bb4be` |
+| J(M) | 640 bytes |
+| batch HMAC message | 681 bytes |
+| batch_digest | `3c5b4eddd1dc7d8e5a706a51a2b2c34192f9dfb82ae0e225d5272187a4bc4353` |
+
+交叉核对方法：Python `json.dumps(... sort_keys=True, ensure_ascii=False, separators=(',', ':'))` + `hmac/hashlib`；独立 Node.js Canonical serializer + `crypto.createHmac`；另以 OpenSSL CLI 对两条已构造消息复核 HMAC。三路 HMAC 输出一致，Python/Node 的 J(C)、R_1、J(M) hex 也一致。完整字节与 hex 见 DESIGN §8.1.1.e。
+
+**边界：** 这是一条 V1 参考向量的独立计算与交叉复核，不是生产代码测试。V2 工具向量、V3 全部转义向量、K02–K11 negative/变体的完整固定 expected、自动化 fixture 文件和真实跨语言测试尚未完成；因此整体 KAT 仍为待完成。公开 synthetic key 仅供测试，禁止生产使用。
