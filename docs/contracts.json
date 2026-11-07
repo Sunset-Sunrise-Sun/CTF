@@ -102,6 +102,44 @@
       },
       "scope": {
         "$ref": "#/$defs/Scope"
+      },
+      "ai_usage_level": {
+        "default": "unknown",
+        "enum": [
+          "A0",
+          "A1",
+          "A2",
+          "unknown"
+        ],
+        "title": "Ai Usage Level",
+        "type": "string"
+      },
+      "score": {
+        "anyOf": [
+          {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Score"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
       }
     },
     "required": [
@@ -182,6 +220,44 @@
       },
       "scope": {
         "$ref": "#/$defs/Scope"
+      },
+      "ai_usage_level": {
+        "default": "unknown",
+        "enum": [
+          "A0",
+          "A1",
+          "A2",
+          "unknown"
+        ],
+        "title": "Ai Usage Level",
+        "type": "string"
+      },
+      "score": {
+        "anyOf": [
+          {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Score"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
       },
       "challenge_id": {
         "title": "Challenge Id",
@@ -273,6 +349,8 @@
           "command_started",
           "command_finished",
           "artifact_added",
+          "challenge_imported",
+          "manual_operation_recorded",
           "finding",
           "verification",
           "limitation",
@@ -1287,6 +1365,760 @@
       }
     },
     "title": "StreamChunk",
+    "type": "object"
+  },
+  "ArtifactView": {
+    "additionalProperties": false,
+    "description": "Artifact plus evidence metadata stored on its artifact_added event.\n\nHistorical artifacts whose event payload predates evidence classification\ndefault to ``other`` with no claimed capture time.",
+    "properties": {
+      "artifact_id": {
+        "title": "Artifact Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "ingested_at": {
+        "title": "Ingested At",
+        "type": "string"
+      },
+      "source_event_id": {
+        "title": "Source Event Id",
+        "type": "string"
+      },
+      "evidence_kind": {
+        "default": "other",
+        "enum": [
+          "challenge_archive",
+          "analysis",
+          "execution",
+          "execution_output",
+          "flag_capture",
+          "platform_verification",
+          "source_code",
+          "other"
+        ],
+        "title": "Evidence Kind",
+        "type": "string"
+      },
+      "capture_time_claim": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Capture Time Claim"
+      },
+      "source_event_type": {
+        "default": "artifact_added",
+        "title": "Source Event Type",
+        "type": "string"
+      },
+      "source_event_sequence": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Source Event Sequence"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "sha256",
+      "size",
+      "media_type",
+      "original_filename",
+      "source_event_id"
+    ],
+    "title": "ArtifactView",
+    "type": "object"
+  },
+  "Project": {
+    "additionalProperties": false,
+    "properties": {
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "project_name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Project Name",
+        "type": "string"
+      },
+      "competition_name": {
+        "default": "",
+        "maxLength": 200,
+        "title": "Competition Name",
+        "type": "string"
+      },
+      "competition_type": {
+        "default": "",
+        "maxLength": 100,
+        "title": "Competition Type",
+        "type": "string"
+      },
+      "rules_filename": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Filename"
+      },
+      "rules_sha256": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Sha256"
+      },
+      "rules_size": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Size"
+      },
+      "rules_ingested_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Ingested At"
+      },
+      "ai_policy_summary": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Ai Policy Summary",
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_name"
+    ],
+    "title": "Project",
+    "type": "object"
+  },
+  "ProjectUpdate": {
+    "additionalProperties": false,
+    "properties": {
+      "project_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Project Name"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
+      },
+      "competition_type": {
+        "anyOf": [
+          {
+            "maxLength": 100,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Type"
+      },
+      "ai_policy_summary": {
+        "anyOf": [
+          {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Ai Policy Summary"
+      }
+    },
+    "title": "ProjectUpdate",
+    "type": "object"
+  },
+  "ManualOperationCreate": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Command",
+        "type": "string"
+      },
+      "working_directory": {
+        "maxLength": 500,
+        "minLength": 1,
+        "title": "Working Directory",
+        "type": "string"
+      },
+      "purpose": {
+        "maxLength": 500,
+        "minLength": 1,
+        "title": "Purpose",
+        "type": "string"
+      },
+      "exit_code": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Exit Code"
+      },
+      "result_note": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Result Note",
+        "type": "string"
+      },
+      "started_at_claim": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Started At Claim"
+      },
+      "finished_at_claim": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Finished At Claim"
+      }
+    },
+    "required": [
+      "command",
+      "working_directory",
+      "purpose",
+      "result_note"
+    ],
+    "title": "ManualOperationCreate",
+    "type": "object"
+  },
+  "ImportFile": {
+    "additionalProperties": false,
+    "properties": {
+      "relative_path": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Relative Path",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      }
+    },
+    "required": [
+      "relative_path",
+      "size",
+      "sha256",
+      "media_type"
+    ],
+    "title": "ImportFile",
+    "type": "object"
+  },
+  "ImportRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256"
+    ],
+    "title": "ImportRecord",
+    "type": "object"
+  },
+  "ImportDetail": {
+    "$defs": {
+      "ImportFile": {
+        "additionalProperties": false,
+        "properties": {
+          "relative_path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relative_path",
+          "size",
+          "sha256",
+          "media_type"
+        ],
+        "title": "ImportFile",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      },
+      "files": {
+        "items": {
+          "$ref": "#/$defs/ImportFile"
+        },
+        "title": "Files",
+        "type": "array"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256"
+    ],
+    "title": "ImportDetail",
+    "type": "object"
+  },
+  "ImportResult": {
+    "$defs": {
+      "ArtifactView": {
+        "additionalProperties": false,
+        "description": "Artifact plus evidence metadata stored on its artifact_added event.\n\nHistorical artifacts whose event payload predates evidence classification\ndefault to ``other`` with no claimed capture time.",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_filename": {
+            "title": "Original Filename",
+            "type": "string"
+          },
+          "ingested_at": {
+            "title": "Ingested At",
+            "type": "string"
+          },
+          "source_event_id": {
+            "title": "Source Event Id",
+            "type": "string"
+          },
+          "evidence_kind": {
+            "default": "other",
+            "enum": [
+              "challenge_archive",
+              "analysis",
+              "execution",
+              "execution_output",
+              "flag_capture",
+              "platform_verification",
+              "source_code",
+              "other"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "capture_time_claim": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Capture Time Claim"
+          },
+          "source_event_type": {
+            "default": "artifact_added",
+            "title": "Source Event Type",
+            "type": "string"
+          },
+          "source_event_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Event Sequence"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "sha256",
+          "size",
+          "media_type",
+          "original_filename",
+          "source_event_id"
+        ],
+        "title": "ArtifactView",
+        "type": "object"
+      },
+      "ImportFile": {
+        "additionalProperties": false,
+        "properties": {
+          "relative_path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relative_path",
+          "size",
+          "sha256",
+          "media_type"
+        ],
+        "title": "ImportFile",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      },
+      "files": {
+        "items": {
+          "$ref": "#/$defs/ImportFile"
+        },
+        "title": "Files",
+        "type": "array"
+      },
+      "original_artifact": {
+        "$ref": "#/$defs/ArtifactView"
+      },
+      "import_event_id": {
+        "title": "Import Event Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256",
+      "original_artifact",
+      "import_event_id"
+    ],
+    "title": "ImportResult",
+    "type": "object"
+  },
+  "WriteupPreview": {
+    "additionalProperties": false,
+    "properties": {
+      "markdown": {
+        "title": "Markdown",
+        "type": "string"
+      },
+      "missing_requirements": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Missing Requirements",
+        "type": "array"
+      },
+      "event_count": {
+        "minimum": 0,
+        "title": "Event Count",
+        "type": "integer"
+      },
+      "artifact_count": {
+        "minimum": 0,
+        "title": "Artifact Count",
+        "type": "integer"
+      },
+      "completeness": {
+        "enum": [
+          "complete",
+          "incomplete"
+        ],
+        "title": "Completeness",
+        "type": "string"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "markdown",
+      "event_count",
+      "artifact_count",
+      "completeness"
+    ],
+    "title": "WriteupPreview",
     "type": "object"
   }
 }

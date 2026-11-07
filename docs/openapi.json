@@ -2,13 +2,121 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CTF Agent Workbench",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/health": {
       "get": {
         "summary": "Health",
         "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project": {
+      "get": {
+        "summary": "Get Project",
+        "operationId": "get_project_api_project_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Project",
+        "operationId": "put_project_api_project_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/rules": {
+      "post": {
+        "summary": "Upload Rules",
+        "operationId": "upload_rules_api_project_rules_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_rules_api_project_rules_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/rules/content": {
+      "get": {
+        "summary": "Rules Content",
+        "operationId": "rules_content_api_project_rules_content_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -239,7 +347,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Artifact"
+                  "$ref": "#/components/schemas/ArtifactView"
                 }
               }
             }
@@ -278,7 +386,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Artifact"
+                    "$ref": "#/components/schemas/ArtifactView"
                   },
                   "title": "Response List Artifacts Api Challenges  Cid  Artifacts Get"
                 }
@@ -328,7 +436,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Artifact"
+                  "$ref": "#/components/schemas/ArtifactView"
                 }
               }
             }
@@ -438,6 +546,324 @@
         }
       }
     },
+    "/api/challenges/{cid}/imports": {
+      "post": {
+        "summary": "Import Challenge",
+        "operationId": "import_challenge_api_challenges__cid__imports_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_challenge_api_challenges__cid__imports_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Imports List",
+        "operationId": "imports_list_api_challenges__cid__imports_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ImportRecord"
+                  },
+                  "title": "Response Imports List Api Challenges  Cid  Imports Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/imports/{import_id}": {
+      "get": {
+        "summary": "Import Detail",
+        "operationId": "import_detail_api_challenges__cid__imports__import_id__get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "import_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Import Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/imports/{import_id}/files/{relative_path}": {
+      "get": {
+        "summary": "Import File",
+        "operationId": "import_file_api_challenges__cid__imports__import_id__files__relative_path__get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "import_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Import Id"
+            }
+          },
+          {
+            "name": "relative_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Relative Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/manual-operations": {
+      "post": {
+        "summary": "Manual Operation",
+        "operationId": "manual_operation_api_challenges__cid__manual_operations_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualOperationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/writeup/preview": {
+      "get": {
+        "summary": "Writeup Preview",
+        "operationId": "writeup_preview_api_challenges__cid__writeup_preview_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteupPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/export": {
+      "get": {
+        "summary": "Export Dossier",
+        "operationId": "export_dossier_api_challenges__cid__export_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tools": {
       "get": {
         "summary": "Tools",
@@ -457,7 +883,7 @@
   },
   "components": {
     "schemas": {
-      "Artifact": {
+      "ArtifactView": {
         "properties": {
           "artifact_id": {
             "type": "string",
@@ -491,6 +917,48 @@
           "source_event_id": {
             "type": "string",
             "title": "Source Event Id"
+          },
+          "evidence_kind": {
+            "type": "string",
+            "enum": [
+              "challenge_archive",
+              "analysis",
+              "execution",
+              "execution_output",
+              "flag_capture",
+              "platform_verification",
+              "source_code",
+              "other"
+            ],
+            "title": "Evidence Kind",
+            "default": "other"
+          },
+          "capture_time_claim": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Time Claim"
+          },
+          "source_event_type": {
+            "type": "string",
+            "title": "Source Event Type",
+            "default": "artifact_added"
+          },
+          "source_event_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Event Sequence"
           }
         },
         "additionalProperties": false,
@@ -503,9 +971,10 @@
           "original_filename",
           "source_event_id"
         ],
-        "title": "Artifact"
+        "title": "ArtifactView",
+        "description": "Artifact plus evidence metadata stored on its artifact_added event.\n\nHistorical artifacts whose event payload predates evidence classification\ndefault to ``other`` with no claimed capture time."
       },
-      "Body_upload_artifact_api_challenges__cid__artifacts_post": {
+      "Body_import_challenge_api_challenges__cid__imports_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -517,7 +986,57 @@
         "required": [
           "file"
         ],
+        "title": "Body_import_challenge_api_challenges__cid__imports_post"
+      },
+      "Body_upload_artifact_api_challenges__cid__artifacts_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "evidence_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Kind"
+          },
+          "capture_time_claim": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Time Claim"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
         "title": "Body_upload_artifact_api_challenges__cid__artifacts_post"
+      },
+      "Body_upload_rules_api_project_rules_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_rules_api_project_rules_post"
       },
       "Challenge": {
         "properties": {
@@ -555,6 +1074,42 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
+          },
+          "ai_usage_level": {
+            "type": "string",
+            "enum": [
+              "A0",
+              "A1",
+              "A2",
+              "unknown"
+            ],
+            "title": "Ai Usage Level",
+            "default": "unknown"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "competition_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competition Name"
           },
           "challenge_id": {
             "type": "string",
@@ -639,6 +1194,42 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
+          },
+          "ai_usage_level": {
+            "type": "string",
+            "enum": [
+              "A0",
+              "A1",
+              "A2",
+              "unknown"
+            ],
+            "title": "Ai Usage Level",
+            "default": "unknown"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "competition_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competition Name"
           }
         },
         "additionalProperties": false,
@@ -693,6 +1284,8 @@
               "command_started",
               "command_finished",
               "artifact_added",
+              "challenge_imported",
+              "manual_operation_recorded",
               "finding",
               "verification",
               "limitation",
@@ -754,6 +1347,307 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "ImportDetail": {
+        "properties": {
+          "import_id": {
+            "type": "string",
+            "title": "Import Id"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "original_artifact_id": {
+            "type": "string",
+            "title": "Original Artifact Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "extracted_file_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Extracted File Count"
+          },
+          "total_uncompressed_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Uncompressed Size"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "title": "Manifest Sha256"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "import_id",
+          "challenge_id",
+          "original_artifact_id",
+          "original_filename",
+          "extracted_file_count",
+          "total_uncompressed_size",
+          "created_at",
+          "manifest_sha256"
+        ],
+        "title": "ImportDetail"
+      },
+      "ImportFile": {
+        "properties": {
+          "relative_path": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Relative Path"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "relative_path",
+          "size",
+          "sha256",
+          "media_type"
+        ],
+        "title": "ImportFile"
+      },
+      "ImportRecord": {
+        "properties": {
+          "import_id": {
+            "type": "string",
+            "title": "Import Id"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "original_artifact_id": {
+            "type": "string",
+            "title": "Original Artifact Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "extracted_file_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Extracted File Count"
+          },
+          "total_uncompressed_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Uncompressed Size"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "title": "Manifest Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "import_id",
+          "challenge_id",
+          "original_artifact_id",
+          "original_filename",
+          "extracted_file_count",
+          "total_uncompressed_size",
+          "created_at",
+          "manifest_sha256"
+        ],
+        "title": "ImportRecord"
+      },
+      "ImportResult": {
+        "properties": {
+          "import_id": {
+            "type": "string",
+            "title": "Import Id"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "original_artifact_id": {
+            "type": "string",
+            "title": "Original Artifact Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "extracted_file_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Extracted File Count"
+          },
+          "total_uncompressed_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Uncompressed Size"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "title": "Manifest Sha256"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "original_artifact": {
+            "$ref": "#/components/schemas/ArtifactView"
+          },
+          "import_event_id": {
+            "type": "string",
+            "title": "Import Event Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "import_id",
+          "challenge_id",
+          "original_artifact_id",
+          "original_filename",
+          "extracted_file_count",
+          "total_uncompressed_size",
+          "created_at",
+          "manifest_sha256",
+          "original_artifact",
+          "import_event_id"
+        ],
+        "title": "ImportResult"
+      },
+      "ManualOperationCreate": {
+        "properties": {
+          "command": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Command"
+          },
+          "working_directory": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Working Directory"
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Purpose"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "result_note": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Result Note"
+          },
+          "started_at_claim": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At Claim"
+          },
+          "finished_at_claim": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At Claim"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command",
+          "working_directory",
+          "purpose",
+          "result_note"
+        ],
+        "title": "ManualOperationCreate"
+      },
       "NoteCreate": {
         "properties": {
           "text": {
@@ -785,6 +1679,145 @@
           "text"
         ],
         "title": "NoteCreate"
+      },
+      "Project": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "project_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Project Name"
+          },
+          "competition_name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Competition Name",
+            "default": ""
+          },
+          "competition_type": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Competition Type",
+            "default": ""
+          },
+          "rules_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Filename"
+          },
+          "rules_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Sha256"
+          },
+          "rules_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Size"
+          },
+          "rules_ingested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Ingested At"
+          },
+          "ai_policy_summary": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Ai Policy Summary",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_name"
+        ],
+        "title": "Project"
+      },
+      "ProjectUpdate": {
+        "properties": {
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "competition_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competition Name"
+          },
+          "competition_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competition Type"
+          },
+          "ai_policy_summary": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Policy Summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProjectUpdate"
       },
       "Scope": {
         "properties": {
@@ -857,6 +1890,55 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WriteupPreview": {
+        "properties": {
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "missing_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Requirements"
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Count"
+          },
+          "artifact_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Artifact Count"
+          },
+          "completeness": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "incomplete"
+            ],
+            "title": "Completeness"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "markdown",
+          "event_count",
+          "artifact_count",
+          "completeness"
+        ],
+        "title": "WriteupPreview"
       }
     }
   }
