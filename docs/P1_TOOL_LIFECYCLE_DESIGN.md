@@ -361,11 +361,13 @@ M.first_received_at / last_received_at 唯一形式为 `YYYY-MM-DDTHH:MM:SS.ffff
 
 既有 now().isoformat() 生成 UTC `+00:00`，但微秒为零时可能省略 `.000000`；这不是历史数据损坏。保留所有历史 Event.occurred_at/Artifact.ingested_at 等原始字符串及其哈希，不升级为强制六位格式。新 M 的固定精度是在现有 UTC/ISO8601 约定上收紧**新协议字段**，并不将该收紧追溯应用到旧 Event。Event envelope 不在 M 内；不把旧 occurred_at 直接塞进 M 充当接收时间，也不将回溯录入时间替代实际接收时间。
 
-#### 8.1.1.e 跨语言 Known-Answer Test（KAT）设计，尚未运行
+#### 8.1.1.e 跨语言 Known-Answer Test（KAT）：离线参考套件已冻结并执行，生产验收待完成
 
 KAT 必须先冻结向量文件，再分别由 Python 和至少一种非 Python 实现验证，禁止测试运行时用被测实现生成“期望值”。fixture 完整包含：version、固定测试 key 的 hex、C、按序 R_i、M 非 tag 字段、期望 J(C)/R_i/J(M) 的完整 UTF-8 hex、每个 F 项的长度前缀/拼接消息 hex、期望 content_fingerprint 和 batch_digest 的完整 64 位 hex、非法向量的固定拒绝码。两套独立参考实现一致并经复核后才能冻结这些 expected 值；运行进程/locale/JSON 库可变，expected 不可变。
 
-初版仅定义设计，未计算 MAC。现已为 V1 生成完整 canonical/framing 字节与两个固定 MAC，并由 Python 与 Node.js 两套独立实现交叉计算一致；V1 作为待复审冻结的 Golden 候选。V2/V3 已取得双实现一致的 tag 摘要，但完整 framing hex 尚未全部入 fixture；negative vectors、完整自动化测试文件及真实接收实现仍未完成。因此整个 KAT 套件尚未冻结，也不能宣称 KAT 全部通过。
+当前离线参考 KAT 已冻结于 `tests/fixtures/stream_content_v1_kat.json`，完整复现命令、向量矩阵与校验清单见 `docs/STREAM_CONTENT_V1_KAT_FINAL.md`。原始 172 条输入及 expected 保持不变，PR #4 追加 23 条结构预算边界向量，合计 195 条（56 条正向、139 条精确错误码）。Python 与 Node.js 参考 runner 分别通过 195/195 条冻结用例，各自完成 6 次 V1/V2/V3 新进程检查；跨语言 195 条逐项结果、Canonical/framing/message hex 与两层 MAC 均逐字节一致。Fixture SHA-256 为 `92a790c122f0f60a56a60b12ee5d36e77bfdb2a379f65f46cf7f9c291d7c0bd6`。这些结果仅证明离线参考实现符合冻结向量，不代表生产 Provider 接收器、HTTP/SSE 资源防护、SQLite 持久化、keyring、状态故障矩阵或工具执行通过。
+
+已知非阻断差异：对同时包含重复键与非法值的组合畸形 JSON，基线 Python 与 Node.js 的错误优先级仍有差异，例如 `{"x":0,"x":1.0}` 分别返回 `integer_type` 与 `duplicate_key`，`{"x":0,"x":NaN}` 分别返回 `invalid_json` 与 `duplicate_key`。这两类组合输入不在当前 195 条冻结向量中；后续应单独统一解析优先级并补充固定向量。在此之前，不得宣称任意畸形 JSON 的错误优先级跨语言完全一致。
 
 公开合成测试 key（固定字节，不是随机生成的真实审计密钥；禁止用于生产）：
 
@@ -467,7 +469,7 @@ V2 的 `function.arguments` 保持原始字符串 `{"n":1.0}`；V3 内容 UTF-8 
 
 拒绝码固定设计：非法 JSON 词法、NaN/Infinity/-Infinity 或非法 Unicode 为 invalid_json；解码后重复键为 duplicate_key；小数/指数 token、字符串/bool/null 冒充整数为 integer_type；整数负零为 noncanonical_integer；超界或不满足正/非负字段为 range_error；不合法时间串统一 timestamp_format；C/M 对应字段不一致为 context_mismatch。实现前冻结的 negative 向量应逐个对应唯一预期码，不能接受一组候选码。多种错误同时出现的向量不用于判定错误优先级，除非另行冻结了优先顺序。
 
-| KAT | 固定输入/变体 | 预期输出设计要求（待冻结/验证） |
+| KAT | 固定输入/变体 | 冻结向量与验收要求 |
 |---|---|---|
 | K01 同输入不同库 | V1，Python 与第二语言、不同 locale | 完整 J/F 消息 hex 与两个 golden MAC 全部逐字节相同 |
 | K02 数值类型/范围 | V1 每个整数逐项替换为 1.0、1e0、"1"、true、-0、负数、SAFE_MAX+1；索引替换为 INDEX_MAX+1；解析输入 NaN/Infinity/-Infinity | 按上述逐项固定拒绝码，HMAC 前拒绝；不能自动转换。零只对非负字段合法；正整数字段的零拒绝 |
@@ -740,7 +742,7 @@ buffered 降级沿用同一请求审计协调器，但无 stream_started/progres
 | S04 | DONE 无 finish_reason、length、截断 arguments；时长/chunk/字节上限边界 | incomplete/invalid_response 或 limit_exceeded；即使覆盖全也不 complete；关闭上游，无提案 |
 | S05 | tool delta 分片跨批、重复 ID、多 choice、heartbeat/finish 控制帧 | chunk 计数按内容帧一次，非按 token/工具数；控制帧不占号；完整且无审计缺口才可转提案 |
 | S06 | async with 提前 break/aclose、重复 cancel、取消时尾批 flush | 关闭 HTTP；批重放无重复计数；一次 cancelled terminal；flush 失败显式 gap |
-| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量；§8.1.1.f.5 R5-01–R5-12 资源边界 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间。离线参考 KAT 的 172 条固定向量（48 正向、124 精确错误码）已冻结并由 Python/Node.js 参考 runner 交叉执行通过，详见 `docs/STREAM_CONTENT_V1_KAT_FINAL.md`；这不代表生产实现或本行其余状态故障矩阵已运行。生产实现仍须验证同有效输入跨库/跨进程 bytes/MAC 一致；超长 ID/UTF-8 边界、choices/tool 数量、累计 delta、record/batch/request 投影与 HTTP/SSE 入口预算超限立即拒绝，不落当前批/Artifact/自动提案，显式 gap/limit_exceeded；唯一终结 |
+| S07 | 批应答丢失；同长度不同内容、工具参数、call id、边界/顺序变化；伪造/复制 tag；metadata/context 篡改；重启带候选或仅回执；key 轮换/丢失/撤销；重叠/缺号及写库失败；§8.1.1.e K01–K11 跨语言向量；§8.1.1.f.5 R5-01–R5-12 资源边界 | 按 §8.3 验证矩阵重算两 HMAC；同批仅真实内容一致幂等；异内容零写入；receipt_only 不当内容重验；未提交丢失显式 gap；固定旧 key 可恢复验证，不可恢复不降级；严格拒绝数值强转/重复键/非规范时间。离线参考 KAT 的 195 条固定向量（56 正向、139 精确错误码）已冻结并由 Python/Node.js 参考 runner 交叉执行通过，原始 172 条保持不变并追加 23 条结构预算边界向量，详见 `docs/STREAM_CONTENT_V1_KAT_FINAL.md`；这不代表生产实现或本行其余状态故障矩阵已运行。生产实现仍须验证同有效输入跨库/跨进程 bytes/MAC 一致；超长 ID/UTF-8 边界、choices/tool 数量、累计 delta、record/batch/request 投影与 HTTP/SSE 入口预算超限立即拒绝，不落当前批/Artifact/自动提案，显式 gap/limit_exceeded；唯一终结 |
 | S08 | buffered 降级、complete 嵌套与空流 | 不伪造 progress/chunk 序号；stream 统计 not_applicable；无双 model_call；真正空流按协议证明与零内容统计判定 |
 | C01 | 001/002 升级、旧 call_id=null、历史事件 | 哈希不变、下载/去重/原测试仍通过 |
 | C02 | SQL UPDATE/DELETE/REPLACE、状态/JSON 错配 | 触发器/业务验证拒绝；重放检测不一致 |
