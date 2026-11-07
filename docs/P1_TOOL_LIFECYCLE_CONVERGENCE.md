@@ -237,3 +237,15 @@ DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Pr
 交叉核对方法：Python `json.dumps(... sort_keys=True, ensure_ascii=False, separators=(',', ':'))` + `hmac/hashlib`；独立 Node.js Canonical serializer + `crypto.createHmac`；另以 OpenSSL CLI 对两条已构造消息复核 HMAC。三路 HMAC 输出一致，Python/Node 的 J(C)、R_1、J(M) hex 也一致。完整字节与 hex 见 DESIGN §8.1.1.e。
 
 **边界：** 这是一条 V1 参考向量的独立计算与交叉复核，不是生产代码测试。V2 工具向量、V3 全部转义向量、K02–K11 negative/变体的完整固定 expected、自动化 fixture 文件和真实跨语言测试尚未完成；因此整体 KAT 仍为待完成。公开 synthetic key 仅供测试，禁止生产使用。
+
+
+### V2/V3 候选摘要的双实现交叉结果
+
+继续按 DESIGN 固定输入，Python 与 Node.js 两套独立实现对 V2 工具参数字符串和 V3 特殊字符内容计算，两个 tag 与消息长度均一致：
+
+| 向量 | J(R_1) | content message | content_fingerprint | J(M) | batch message | batch_digest |
+|---|---:|---:|---|---:|---:|---|
+| V2 | 161 bytes | 554 bytes | `6eb4f5c21a60752172c31d5f12406097745a8f44beaf427e225821e92726ad1c` | 641 bytes | 682 bytes | `184636adc641086fdcc1b8d2b3331ac58d18add5683a2d73e74111a11f9beda1` |
+| V3 | 94 bytes | 487 bytes | `1eb38a23e50cd057323999f0c62957d8a7c2271d54e513d42f2c36a8560b50b2` | 641 bytes | 682 bytes | `ed42d756080b00dbad1f573e3c8025079d2c657a48051f74eb982f2063607c4f` |
+
+V2 的 arguments JSON 仍为原始字符串；V3 UTF-8 内容长度核对为 18 bytes。V2/V3 完整 framing hex 尚未全部入文档，故仍是候选计算结果，不宣称完整 golden fixture 冻结。V1 已有完整 J(C)/R_1/J(M)、两条完整 F 消息 hex 与 MAC 输出。
