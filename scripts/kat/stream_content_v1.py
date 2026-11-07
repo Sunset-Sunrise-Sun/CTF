@@ -23,12 +23,52 @@ EK = set(
 
 
 class Rejected(Exception):
-    def __init__(self, code, limit=None):
-        self.code, self.limit = code, limit
+    def __init__(self, code, limit=None, structure=None):
+        self.code, self.limit, self.structure = code, limit, structure
 
 
-def reject(code, limit=None):
-    raise Rejected(code, limit)
+def reject(code, limit=None, structure=None):
+    raise Rejected(code, limit, structure)
+
+
+def guard_structure(source):
+    """Iterative lexical preflight: no input object/array is constructed here.
+
+    Count containers, not primitive values; the root container is depth 1.
+    An object member is reserved at its opening key quote, before its value.
+    First violation in source order wins, before semantic/duplicate-key checks.
+    """
+    stack = []  # At most 8 fixed-size scanner frames.
+    in_string = escaped = key_string = False
+    for character in source:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+                if key_string:
+                    stack[-1][2] = False
+            continue
+        if character == '"':
+            key_string = bool(stack and stack[-1][0] == "{" and stack[-1][2])
+            if key_string:
+                if stack[-1][1] == 16:
+                    reject("limit_exceeded", "projection_structure", "object_keys")
+                stack[-1][1] += 1
+            in_string = True
+        elif character in "{[":
+            if len(stack) == 8:
+                reject("limit_exceeded", "projection_structure", "container_depth")
+            stack.append([character, 0, character == "{"])
+        elif character in "}]":
+            if not stack or stack[-1][0] != ("{" if character == "}" else "["):
+                reject("invalid_json")
+            stack.pop()
+        elif character == "," and stack and stack[-1][0] == "{":
+            stack[-1][2] = True
+    # Full JSON syntax and string/token validation remain the parser's job.
 
 
 def integer(v, minimum=0, maximum=SAFE):
@@ -76,14 +116,16 @@ def parse(raw):
     try:
         if raw.startswith(b"\xef\xbb\xbf"):
             reject("invalid_json")
+        source = raw.decode("utf-8", errors="strict")
+        guard_structure(source)
         return json.loads(
-            raw.decode("utf-8", errors="strict"),
+            source,
             object_pairs_hook=unique,
             parse_int=pint,
             parse_float=lambda _: reject("integer_type"),
             parse_constant=lambda _: reject("invalid_json"),
         )
-    except (ValueError, UnicodeError, RecursionError):
+    except (ValueError, UnicodeError):
         reject("invalid_json")
 
 
@@ -303,6 +345,8 @@ def evaluate(case, key):
         result = {"status": "error", "code": error.code}
         if error.limit:
             result["limit_code"] = error.limit
+        if error.structure:
+            result["structure_limit"] = error.structure
         return result
 
 
