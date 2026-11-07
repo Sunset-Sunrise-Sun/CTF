@@ -172,8 +172,8 @@ PR 描述同步更新，保持 Draft，等待独立验收；本轮不授权实�
 | projected record | 1048576 / 1048576 bytes |
 | max_projected_batch_bytes | 2097152 / 2097152 bytes |
 | max_projected_request_bytes | 16777216 / 33554432 bytes |
-| source SSE event | 1048576 / 1048576 bytes |
-| wire request | 33554432 / 67108864 bytes |
+| SSE event block（含结束空行） | 1048576 / 1048576 bytes |
+| max_upstream_response_body_bytes | 33554432 / 67108864 bytes |
 | 单次 read / 投影深度 / 单对象键数 | 32768 bytes / 8 / 16 |
 
 选择保守预算限制 ID 放大、空增量/数组对象放大及 Canonical 转义开销；单选择与现有行为一致，参数仍允许较长合成脚本。入口预算避免先完整 JSON/SSE 缓冲才发现投影过大。各项同时生效，某字符串到上限不保证整个记录/批还合法；这些不是性能实测承诺，详见 DESIGN §8.1.1.f。
@@ -200,7 +200,7 @@ content_bytes_delta 不改变，call id 不强塞进内容计数；新 resource_
 
 ### S07 资源测试矩阵（未运行）
 
-DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Provider/key、256/257-byte model/name、85个“中”+A=256 再加 B=257-byte、多字节与转义膨胀、256KiB 字符串及累积槽位边界；1/2 choices、16/17 delta/frame、4096/4097 delta/request；1MiB record、2MiB batch、32MiB request 的 B−1/B/B+1（默认 16MiB 另测）；入口 1MiB/64MiB；超限拒绝批零部分成功及重试/收尾幂等。S07 已链接全部场景。
+DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Provider/key、256/257-byte model/name、85个“中”+A=256 再加 B=257-byte、多字节与转义膨胀、256KiB 字符串及累积槽位边界；1/2 choices、16/17 delta/frame、4096/4097 delta/request；1MiB record、2MiB batch、32MiB request 的 B−1/B/B+1（默认 16MiB 另测）；入口 SSE event block 1MiB/上游响应体 64MiB。另覆盖 HTTP headers/transfer framing 排除、Content-Encoding 非 identity 拒绝、3xx 不跟随；超限拒绝批零部分成功及重试/收尾幂等。S07 已链接全部场景。
 
 必须隔离目标限额构造样例，不能以先撞到别的限额冒称该边界已验证。所有用例仍为设计清单，没有运行 HMAC、实际模型、工具、SQLite 或故障恢复测试。
 
@@ -212,3 +212,10 @@ DESIGN §8.1.1.f.5 固定 R5-01–R5-12：256/257-byte tool.id、128/129-byte Pr
 静态核对范围：字符串穷举与既有封闭类型表对应；所有预算有默认/硬上限；C/M/R_i 与 F/domain 的总量公式完整；原 content_bytes 口径和 C/M 字段数不改；finally flush 的资源拒绝例外在各节一致；测试包含全部用户要求及旧批不重复收费。仅为文档检查，未声称运行测试通过；后续实现和独立复审仍未完成。
 
 本次 12 项静态声明/样例检查一致：字符串限额覆盖、数组限额、投影预算、两 domain 字节长度 27/25、合成多字节边界样例 256/257、全部 framing 公式、HMAC 前检查约束、超限原子性、S07 引用、R5-01–R5-12 齐全、Markdown 围栏配对、封闭 M 十六字段保持。仅扫描文档与核对固定字节长度，未执行边界处理器、HMAC、数据库或真实 Provider 测试。
+
+
+## R5 入口预算方向与字节口径澄清
+
+独立复审指出旧名 `max_wire_request_bytes` 与实际限制的 Provider 返回 SSE 流方向不一致，已统一为 `max_upstream_response_body_bytes`。数值不变：默认 32MiB、硬上限 64MiB。该值统计单次 Provider HTTP response body octets：HTTP status line/headers 与 HTTP transfer framing 不计；请求要求 `Accept-Encoding: identity`，非 identity Content-Encoding 拒绝；body 中 SSE/JSON/framing、空白、注释/heartbeat、DONE、未知字段及被投影排除内容均计入，非 2xx body 若读取亦计入。单 event 的 `max_sse_event_bytes` 从首字节计至结束空行（含空行）；不完整尾部同样实时受限。重定向不跟随；超限不自动重试/重连，显式新调用使用新 request_id 与独立预算。细节以 DESIGN §8.1.1.f.2 为唯一规范。
+
+本次只做文档术语与计数对象澄清，不改变预算数值、HMAC 算法、C/M 字段或内容计数口径。复核范围为 DESIGN 的所有相关引用、R5-10、CONVERGENCE 与 PR 描述；未运行 HTTP 传输层或 Provider 测试。
