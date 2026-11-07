@@ -47,6 +47,11 @@ ARTIFACT_FIELDS = {
     "original_filename",
     "ingested_at",
     "source_event_id",
+    # Additive evidence metadata from the MVP artifact view.
+    "evidence_kind",
+    "capture_time_claim",
+    "source_event_type",
+    "source_event_sequence",
 }
 EVENT_PAYLOAD_FIELDS = {"artifact_id", "sha256", "size", "media_type"}
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
