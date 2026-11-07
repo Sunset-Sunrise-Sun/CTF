@@ -4,6 +4,7 @@
 `complete(ModelRequest) -> ModelResponse`、`stream(ModelRequest) -> AsyncIterator[StreamChunk]`。
 统一消息包含 role/content；工具描述包含 name/description/parameters(JSON Schema)；返回工具调用包含 call_id/name/arguments。
 流式片段的 text 可展示，只有最终 response 中完整且可解析的 tool_calls 能转换提案。
+P0.1：转换的 ToolProposal.call_id 保留原始 ToolCall.call_id，proposal_id 仍为独立审批标识。call_id 可为空以兼容非模型来源提案及旧数据，模型转换路径始终赋值。
 `proposals(response, challenge_id, scope)` 转换为统一 ToolProposal；Provider 不持有执行器，不执行系统命令。
 
 | Adapter | 当前实现 |
@@ -29,6 +30,7 @@ python -m app.model_cli ../providers.local.json --provider openai --allow-model-
 ```
 不输出响应内容，仅记录 Provider、Model ID、请求 UTC 时间和响应状态到本地 SQLite。CLI 不发送题目内容。
 `recorded_complete` 是审计入口，调用者不能绕过它后声称请求已被审计。流式审计入口仍待集成，当前 Web 不开放流式调用。
+审计状态：正常返回 success；ProviderError 使用其 code；其他 Exception 为 internal_error；asyncio.CancelledError 为 cancelled。异常原样向上传递。每次调用只追加一条 model_call，仅含 provider_id、model_id、requested_at、response_status，不含异常正文、请求、响应或密钥。
 
 统一异常 ProviderError.code：missing_credentials、unsupported_capability、timeout、rate_limited（保留 Retry-After）、authentication、upstream_error、transport_error、invalid_response、adapter_not_implemented。
 不自动重试，避免隐式重复计费与重复工具提案；调用方可按 Retry-After 决定重试。超时可配置，取消由 asyncio 向上传递。异常不包含 upstream body 或凭证。

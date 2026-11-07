@@ -97,6 +97,7 @@ class Artifact(Model):
 
 class ToolProposal(Model):
     proposal_id: str = Field(default_factory=uid)
+    call_id: str | None = None
     challenge_id: str
     tool_name: str
     arguments: dict[str, Any]

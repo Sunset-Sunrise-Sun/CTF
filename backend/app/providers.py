@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import AsyncIterator, Literal, Protocol
@@ -285,6 +286,7 @@ def proposals(
     return [
         ToolProposal(
             challenge_id=challenge_id,
+            call_id=t.call_id,
             tool_name=t.name,
             arguments=t.arguments,
             scope=scope,
@@ -299,11 +301,19 @@ async def recorded_complete(
     from .models import now
 
     requested_at = now()
-    status = "success"
+    status = "internal_error"
     try:
-        return await provider.complete(request)
+        response = await provider.complete(request)
+        status = "success"
+        return response
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
     except ProviderError as error:
         status = error.code
+        raise
+    except Exception:
+        status = "internal_error"
         raise
     finally:
         store.append(

@@ -443,6 +443,18 @@
         "title": "Proposal Id",
         "type": "string"
       },
+      "call_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Call Id"
+      },
       "challenge_id": {
         "title": "Challenge Id",
         "type": "string"
