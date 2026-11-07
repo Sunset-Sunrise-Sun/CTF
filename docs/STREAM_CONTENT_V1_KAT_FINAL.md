@@ -31,17 +31,17 @@ V1 的 J(C)、R_1、J(M)、两完整 framing 消息及两个 MAC 均与指定基
 
 | 分组 | 固定内容 | 正向 / 精确拒绝 |
 |---|---|---|
-| K01 | V1 双库 Canonical、F 消息与两 MAC | 1 / 0 |
+| K01 | V1–V3 三个完整向量：双库 Canonical、F 消息与两 MAC | 3 / 0 |
 | K02 | 11 个数字字段的 float/exponent/string/bool/null/-0/负数/越界与正整数零；NaN/Infinity/-Infinity | 0 / 98 |
 | K03 | 同一工具向量 content 缺失/null；非法 name/arguments null | 2 / 2 |
-| K04 | 中文英文、V3 控制/非 BMP、NFC/NFD、scalar 键序、合法等价 escape、非法 UTF-8/surrogate/BOM | 6 / 5 |
+| K04 | 中文英文、V3 控制/非 BMP、NFC/NFD、scalar 键序、合法等价 escape、非法 UTF-8/surrogate/BOM | 5 / 5 |
 | K05 | 逆序对象键；工具数组 AB/BA；AB 单块与 A/B 两块 | 5 / 0 |
 | K06 | choice 转义等价重复键、function 嵌套重复、C 重复字段 | 0 / 3 |
 | K07 | 中A 与文A 同长不同字节 | 1 / 0 |
 | K08 | 不同 batch_id；supplied_M 只改上下文的唯一 context_mismatch | 1 / 1 |
 | K09 | 固定 V1 重新输入；两个 runner 还分别启动 V1/V2/V3 各两个新进程 | 1 / 0 |
 | K10 | 固定六位 UTC、闰年/年1合法；省略/毫秒/Z/偏移/-00/闰秒/非法日期/纳秒拒绝 | 3 / 8 |
-| K11 | 正/非负/索引 min/max 字段单元；原始参数字符串；tool.id UTF-8 256/257 bytes、标识/name 上限、choices/delta 帧数量 | 28 / 7 |
+| K11 | 正/非负/索引 min/max 字段单元；原始参数字符串；tool.id UTF-8 256/257 bytes、标识/name 上限、choices/delta 帧数量 | 27 / 7 |
 
 共 172 条：48 正向、124 负向。负向 expected 固定为完整 `{status,error code,可选 limit_code}`，实际输出必须完全相等；不接受“抛任何异常即可”或候选错误码集合。每个 negative 只改变一个目标字段/词法条件。
 
