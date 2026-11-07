@@ -26,3 +26,19 @@ Authorized CTF challenge environments only. Do not attack the competition platfo
 
 ## Data handling
 This repository is public. Commit application code, documentation, tests, and synthetic fixtures only. Keep challenge attachments, flags, tokens, raw logs, target URLs/IPs, and generated writeups out of Git.
+
+
+## P0 scaffold
+
+- [Setup and limitations](docs/P0_RUNBOOK.md)
+- [API and integrity contract](docs/P0_API.md)
+- [Model providers](docs/MODEL_PROVIDERS.md)
+- [Test report](docs/P0_TEST_REPORT.md)
+- [Complete file map and change list](docs/P0_FILES.md)
+
+## P1-1 evidence storage
+
+- [Attachment storage design, API, security model and known limitations](docs/P1_ARTIFACT_STORAGE.md)
+- [File change list](docs/P1_FILES.md)
+- [Test report](docs/P1_TEST_REPORT.md)
+- [Artifact/Event constraint fix report](docs/P1_FIX_REPORT.md)
