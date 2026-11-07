@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from .models import Artifact, Challenge, Event, now, uid
+from .models import Artifact, ArtifactView, Challenge, Event, now, uid
 
 
 def canonical(value: dict) -> str:
@@ -146,11 +146,20 @@ class Store:
         )
         return event
 
-    def append(self, cid: str, actor: str, event_type: str, payload: dict) -> Event:
+    def append(
+        self,
+        cid: str,
+        actor: str,
+        event_type: str,
+        payload: dict,
+        artifact_ids: tuple[str, ...] = (),
+    ) -> Event:
         self.get(cid)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            return self._append_event(db, cid, actor, event_type, payload)
+            return self._append_event(
+                db, cid, actor, event_type, payload, artifact_ids=artifact_ids
+            )
 
     def add_artifact(
         self,
@@ -160,14 +169,26 @@ class Store:
         size: int,
         media_type: str,
         original_filename: str,
+        evidence_kind: str | None = None,
+        capture_time_claim: str | None = None,
     ) -> tuple[Artifact, Event | None]:
         """Persist artifact metadata and its artifact_added event atomically.
 
         Identical bytes in the same challenge are deduplicated: the existing
         artifact is returned with no new event.  The same bytes in a different
         challenge produce a distinct artifact ID that reuses the content blob.
+
+        Evidence classification and a claimed capture time are recorded on the
+        artifact_added event (not in the immutable artifact row), so historical
+        databases stay readable without a schema migration.  A deduplicated
+        upload keeps the classification of the first ingestion.
         """
         self.get(cid)
+        payload_extra: dict = {}
+        if evidence_kind is not None:
+            payload_extra["evidence_kind"] = evidence_kind
+        if capture_time_claim is not None:
+            payload_extra["capture_time_claim"] = capture_time_claim
         try:
             with self.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -180,17 +201,19 @@ class Store:
                     return _artifact_from_row(existing), None
                 artifact_id = uid()
                 ingested_at = now()
+                payload = {
+                    "artifact_id": artifact_id,
+                    "sha256": sha256,
+                    "size": size,
+                    "media_type": media_type,
+                }
+                payload.update(payload_extra)
                 event = self._append_event(
                     db,
                     cid,
                     "user",
                     "artifact_added",
-                    {
-                        "artifact_id": artifact_id,
-                        "sha256": sha256,
-                        "size": size,
-                        "media_type": media_type,
-                    },
+                    payload,
                     artifact_ids=(artifact_id,),
                 )
                 db.execute(
@@ -244,6 +267,72 @@ class Store:
                     (cid,),
                 )
             ]
+
+    _ARTIFACT_JOIN_COLUMNS = (
+        "a.artifact_id, a.challenge_id, a.sha256, a.size, a.media_type, "
+        "a.original_filename, a.ingested_at, a.source_event_id"
+    )
+    _EVIDENCE_KINDS = {
+        "challenge_archive",
+        "analysis",
+        "execution",
+        "execution_output",
+        "flag_capture",
+        "platform_verification",
+        "source_code",
+        "other",
+    }
+
+    @classmethod
+    def _artifact_view_from_row(cls, row) -> ArtifactView:
+        event = Event.model_validate_json(row[8])
+        payload = event.payload
+        evidence_kind = payload.get("evidence_kind")
+        if evidence_kind not in cls._EVIDENCE_KINDS:
+            evidence_kind = "other"
+        capture_time_claim = payload.get("capture_time_claim")
+        if capture_time_claim is not None and not isinstance(capture_time_claim, str):
+            capture_time_claim = None
+        return ArtifactView(
+            artifact_id=row[0],
+            challenge_id=row[1],
+            sha256=row[2],
+            size=row[3],
+            media_type=row[4],
+            original_filename=row[5],
+            ingested_at=row[6],
+            source_event_id=row[7],
+            evidence_kind=evidence_kind,
+            capture_time_claim=capture_time_claim,
+            source_event_type=event.event_type,
+            source_event_sequence=event.sequence,
+        )
+
+    def artifact_views(self, cid: str) -> list[ArtifactView]:
+        """Artifacts with evidence metadata read from their source event."""
+        self.get(cid)
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT " + self._ARTIFACT_JOIN_COLUMNS + ", e.body "
+                "FROM artifacts a JOIN events e "
+                "ON e.challenge_id=a.challenge_id AND e.event_id=a.source_event_id "
+                "WHERE a.challenge_id=? ORDER BY a.rowid",
+                (cid,),
+            ).fetchall()
+        return [self._artifact_view_from_row(row) for row in rows]
+
+    def artifact_view(self, cid: str, artifact_id: str) -> ArtifactView:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT " + self._ARTIFACT_JOIN_COLUMNS + ", e.body "
+                "FROM artifacts a JOIN events e "
+                "ON e.challenge_id=a.challenge_id AND e.event_id=a.source_event_id "
+                "WHERE a.challenge_id=? AND a.artifact_id=?",
+                (cid, artifact_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(artifact_id)
+        return self._artifact_view_from_row(row)
 
     def artifact(self, cid: str, artifact_id: str) -> Artifact:
         """Return an artifact only when it belongs to the given challenge."""

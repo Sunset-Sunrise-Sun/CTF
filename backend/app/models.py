@@ -19,6 +19,17 @@ class Model(BaseModel):
 Category = Literal["Misc", "Crypto", "Pwn", "Web", "Reverse"]
 SolveStatus = Literal["unknown", "candidate", "verified"]
 WriteupStatus = Literal["not_generated", "incomplete", "review_required", "complete"]
+AiUsageLevel = Literal["A0", "A1", "A2", "unknown"]
+EvidenceKind = Literal[
+    "challenge_archive",
+    "analysis",
+    "execution",
+    "execution_output",
+    "flag_capture",
+    "platform_verification",
+    "source_code",
+    "other",
+]
 
 
 class Scope(Model):
@@ -34,6 +45,11 @@ class ChallengeCreate(Model):
     description: str = ""
     source: Literal["warmup", "practice", "competition"] = "practice"
     scope: Scope = Field(default_factory=Scope)
+    # Extensions are optional with defaults so historical challenge JSON that
+    # predates them keeps loading and validating unchanged.
+    ai_usage_level: AiUsageLevel = "unknown"
+    score: int | None = Field(default=None, ge=0, le=1_000_000)
+    competition_name: str | None = Field(default=None, max_length=200)
 
 
 class Challenge(ChallengeCreate):
@@ -57,6 +73,8 @@ EventType = Literal[
     "command_started",
     "command_finished",
     "artifact_added",
+    "challenge_imported",
+    "manual_operation_recorded",
     "finding",
     "verification",
     "limitation",
@@ -93,6 +111,85 @@ class Artifact(Model):
     original_filename: str
     ingested_at: str = Field(default_factory=now)
     source_event_id: str
+
+
+class ArtifactView(Artifact):
+    """Artifact plus evidence metadata stored on its artifact_added event.
+
+    Historical artifacts whose event payload predates evidence classification
+    default to ``other`` with no claimed capture time.
+    """
+
+    evidence_kind: EvidenceKind = "other"
+    capture_time_claim: str | None = None
+    source_event_type: str = "artifact_added"
+    source_event_sequence: int | None = None
+
+
+class Project(Model):
+    project_id: str = Field(default_factory=uid)
+    project_name: str = Field(min_length=1, max_length=200)
+    competition_name: str = Field(default="", max_length=200)
+    competition_type: str = Field(default="", max_length=100)
+    rules_filename: str | None = None
+    rules_sha256: str | None = None
+    rules_size: int | None = Field(default=None, ge=0)
+    rules_ingested_at: str | None = None
+    ai_policy_summary: str = Field(default="", max_length=4000)
+
+
+class ProjectUpdate(Model):
+    project_name: str | None = Field(default=None, min_length=1, max_length=200)
+    competition_name: str | None = Field(default=None, max_length=200)
+    competition_type: str | None = Field(default=None, max_length=100)
+    ai_policy_summary: str | None = Field(default=None, max_length=4000)
+
+
+class ManualOperationCreate(Model):
+    command: str = Field(min_length=1, max_length=4000)
+    working_directory: str = Field(min_length=1, max_length=500)
+    purpose: str = Field(min_length=1, max_length=500)
+    exit_code: int | None = None
+    result_note: str = Field(min_length=1, max_length=4000)
+    started_at_claim: str | None = Field(default=None, max_length=64)
+    finished_at_claim: str | None = Field(default=None, max_length=64)
+
+
+class ImportFile(Model):
+    relative_path: str = Field(min_length=1, max_length=1000)
+    size: int = Field(ge=0)
+    sha256: str
+    media_type: str
+
+
+class ImportRecord(Model):
+    import_id: str
+    challenge_id: str
+    original_artifact_id: str
+    original_filename: str
+    extracted_file_count: int = Field(ge=0)
+    total_uncompressed_size: int = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: str
+    manifest_sha256: str
+
+
+class ImportDetail(ImportRecord):
+    files: list[ImportFile] = Field(default_factory=list)
+
+
+class ImportResult(ImportDetail):
+    original_artifact: ArtifactView
+    import_event_id: str
+
+
+class WriteupPreview(Model):
+    markdown: str
+    missing_requirements: list[str] = Field(default_factory=list)
+    event_count: int = Field(ge=0)
+    artifact_count: int = Field(ge=0)
+    completeness: Literal["complete", "incomplete"]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ToolProposal(Model):
