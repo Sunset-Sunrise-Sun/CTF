@@ -365,7 +365,7 @@ M.first_received_at / last_received_at 唯一形式为 `YYYY-MM-DDTHH:MM:SS.ffff
 
 KAT 必须先冻结向量文件，再分别由 Python 和至少一种非 Python 实现验证，禁止测试运行时用被测实现生成“期望值”。fixture 完整包含：version、固定测试 key 的 hex、C、按序 R_i、M 非 tag 字段、期望 J(C)/R_i/J(M) 的完整 UTF-8 hex、每个 F 项的长度前缀/拼接消息 hex、期望 content_fingerprint 和 batch_digest 的完整 64 位 hex、非法向量的固定拒绝码。两套独立参考实现一致并经复核后才能冻结这些 expected 值；运行进程/locale/JSON 库可变，expected 不可变。
 
-本轮只定义设计，**不实现/运行 HMAC，不计算或虚构期望 MAC hex**；实际 MAC、完整 framing hex 的 golden 文件待实现阶段独立生成冻结，未冻结之前不能宣称已有可执行 KAT 或 KAT 通过。以下固定输入与可直接读出的序列化期望用于定义该 golden 文件，不是已通过的测试报告。
+初版仅定义设计，未计算 MAC。现已为 V1 生成完整 canonical/framing 字节与两个固定 MAC，并由 Python 与 Node.js 两套独立实现交叉计算一致；V1 作为待复审冻结的 Golden 候选。V2/V3 已取得双实现一致的 tag 摘要，但完整 framing hex 尚未全部入 fixture；negative vectors、完整自动化测试文件及真实接收实现仍未完成。因此整个 KAT 套件尚未冻结，也不能宣称 KAT 全部通过。
 
 公开合成测试 key（固定字节，不是随机生成的真实审计密钥；禁止用于生产）：
 
