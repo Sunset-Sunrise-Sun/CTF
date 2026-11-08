@@ -67,6 +67,8 @@ from .writeups import (
 from .store import Store
 from .workspace import Workspace
 from .writeup import build_writeup_preview
+from .ai_assistant import AIChatRequest, AIChatResponse, ask_challenge, model_network_enabled
+from .providers import ProviderError
 
 # Multipart framing (boundary, per-part headers, filename) is allowed on top of
 # the declared upload limit; the file bytes themselves stay capped exactly.
@@ -340,7 +342,7 @@ def create_app(
         return {
             "status": "ok",
             "execution_enabled": False,
-            "model_network_enabled": False,
+            "model_network_enabled": model_network_enabled(),
             "artifact_max_bytes": app.state.max_artifact_bytes,
             "rules_max_bytes": app.state.rules_max_bytes,
             "writeup_max_bytes": app.state.max_writeup_bytes,
@@ -758,6 +760,62 @@ def create_app(
         )
 
     # ------------------------------------------------------------------
+    # Explicitly confirmed AI-assisted analysis (suggestions only; no execution)
+    @app.get("/api/model/status")
+    def model_status():
+        return {
+            "network_enabled": model_network_enabled(),
+            "provider": "deepseek",
+            "model_id": os.environ.get("CTF_MODEL_ID", "deepseek-chat"),
+            "credentials_configured": bool(
+                os.environ.get(os.environ.get("CTF_MODEL_API_KEY_ENV", "DEEPSEEK_API_KEY"))
+            ),
+            "execution_enabled": False,
+        }
+
+    @app.post("/api/challenges/{cid}/ai/chat", response_model=AIChatResponse, status_code=201)
+    async def ai_chat(cid: str, body: AIChatRequest):
+        challenge = exists(cid)
+        if not body.confirm_external_processing:
+            raise HTTPException(400, "Explicit confirmation is required before challenge content is sent to the model")
+        if not model_network_enabled():
+            raise HTTPException(503, "Model network access is disabled by server configuration")
+        if challenge.ai_usage_level in {"unknown", "A0"}:
+            raise HTTPException(403, "AI assistance is not permitted for this challenge")
+        try:
+            answer, provider_id, model_id, included = await ask_challenge(
+                challenge=challenge,
+                project=app.state.project.get(),
+                store=app.state.store,
+                workspace_challenge=app.state.workspace.challenge(cid),
+                question=body.question,
+            )
+        except ProviderError as error:
+            status = {
+                "missing_credentials": 503, "model_network_disabled": 503,
+                "ai_usage_not_permitted": 403, "rate_limited": 429,
+                "timeout": 504, "authentication": 502,
+                "unsupported_capability": 502, "upstream_error": 502,
+                "transport_error": 502, "invalid_response": 502,
+                "empty_response": 502,
+            }.get(error.code, 502)
+            raise HTTPException(status, {"code": error.code}) from None
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        event = app.state.store.append(
+            cid, "agent", "agent_message",
+            {
+                "provider_id": provider_id, "model_id": model_id,
+                "answer": answer, "included_files": included,
+                "verification_status": "unverified_suggestion",
+                "execution_performed": False,
+            },
+        )
+        return AIChatResponse(
+            event_id=event.event_id, answer=answer,
+            provider_id=provider_id, model_id=model_id, included_files=included,
+        )
+
     # manual execution records
     # ------------------------------------------------------------------
     @app.post(
