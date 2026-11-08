@@ -21,7 +21,7 @@
 ```powershell
 $env:CTF_MODEL_NETWORK_ENABLED = "true"
 $env:DEEPSEEK_API_KEY = "你的 DeepSeek API Key"
-$env:CTF_MODEL_ID = "deepseek-chat"
+$env:CTF_MODEL_ID = "deepseek-flash"
 $env:CTF_MODEL_API_KEY_ENV = "DEEPSEEK_API_KEY"
 $env:CTF_MODEL_BASE_URL = "https://api.deepseek.com"
 ```
