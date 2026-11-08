@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from pydantic import Field
+from .models import Model
 from pathlib import Path
 
 from .models import Challenge, Project
@@ -27,6 +29,20 @@ from .imports import (
     imported_file,
     scan_imports,
 )
+
+class AIChatRequest(Model):
+    question: str = Field(min_length=1, max_length=8000)
+    confirm_external_processing: bool = False
+
+
+class AIChatResponse(Model):
+    event_id: str
+    answer: str
+    provider_id: str
+    model_id: str
+    included_files: list[str]
+    verification_status: str = "unverified_suggestion"
+
 
 MAX_CONTEXT_BYTES = 180_000
 MAX_FILE_BYTES = 32_000
