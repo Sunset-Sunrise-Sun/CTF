@@ -51,12 +51,26 @@ export interface ImportRecord {
   total_uncompressed_size: number;
   files?: ImportFile[];
   warnings: string[];
+  manifest_verified?: boolean;
+  integrity_error?: string | null;
 }
 export interface Preview {
   markdown: string;
   completeness: string;
   missing_requirements: string[];
   warnings: string[];
+}
+export function exportState(p: Preview, header: string | null): Preview {
+  return header === "complete"
+    ? p
+    : {
+        ...p,
+        completeness: "incomplete",
+        missing_requirements: [
+          ...p.missing_requirements,
+          "export_snapshot_incomplete",
+        ],
+      };
 }
 export const categories = ["Crypto", "Web", "Pwn", "Reverse", "Misc"];
 export const evidenceKinds = [

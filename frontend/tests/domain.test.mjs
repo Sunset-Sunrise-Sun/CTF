@@ -82,3 +82,77 @@ test("chunked preview cannot bypass byte cap", async () => {
     global.fetch = old;
   }
 });
+
+import { loadImportDetails } from "../src/api.ts";
+test("unverified manifest never fetches details or exposes stale files", async () => {
+  const rows = await loadImportDetails(
+    [
+      {
+        import_id: "bad",
+        manifest_verified: false,
+        integrity_error: "binding failed",
+        files: [{ relative_path: "stale" }],
+      },
+    ],
+    async () => {
+      throw Error("must not fetch");
+    },
+  );
+  assert.deepEqual(rows[0].files, []);
+  assert.equal(rows[0].integrity_error, "binding failed");
+});
+test("one 409 preserves other verified imports", async () => {
+  const rows = await loadImportDetails(
+    [
+      { import_id: "bad", manifest_verified: true },
+      { import_id: "good", manifest_verified: true },
+    ],
+    async (id) => {
+      if (id === "bad") throw new ApiError(409, "integrity");
+      return {
+        import_id: id,
+        manifest_verified: true,
+        files: [{ relative_path: "valid" }],
+      };
+    },
+  );
+  assert.equal(rows[0].manifest_verified, false);
+  assert.match(rows[0].integrity_error, /409/);
+  assert.equal(rows[1].files[0].relative_path, "valid");
+});
+test("unknown or downgraded verification never exposes files", async () => {
+  const rows = await loadImportDetails(
+    [{ import_id: "old" }, { import_id: "changed", manifest_verified: true }],
+    async (id) => ({ import_id: id, files: [{}], manifest_verified: false }),
+  );
+  assert.ok(
+    rows.every((r) => r.manifest_verified === false && r.files.length === 0),
+  );
+});
+
+import { exportState } from "../src/domain.ts";
+test("actual incomplete export overrides complete preview", () => {
+  const p = exportState(
+    { completeness: "complete", missing_requirements: [] },
+    "incomplete",
+  );
+  assert.match(completeness(p), /不完整/);
+  assert.ok(p.missing_requirements.includes("export_snapshot_incomplete"));
+});
+test("missing export header fails closed; complete header cannot remove missing requirements", () => {
+  assert.match(
+    completeness(
+      exportState({ completeness: "complete", missing_requirements: [] }, null),
+    ),
+    /不完整/,
+  );
+  assert.match(
+    completeness(
+      exportState(
+        { completeness: "incomplete", missing_requirements: ["code"] },
+        "complete",
+      ),
+    ),
+    /不完整/,
+  );
+});

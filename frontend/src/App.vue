@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { request, upload, limitedBlob, saveBlob } from "./api";
+import {
+  request,
+  upload,
+  limitedBlob,
+  saveBlob,
+  loadImportDetails,
+} from "./api";
 import {
   categories,
   evidenceKinds,
@@ -9,6 +15,7 @@ import {
   filePath,
   draftKey,
   completeness,
+  exportState,
 } from "./domain";
 import type {
   Challenge,
@@ -60,6 +67,7 @@ const operation = reactive({
 });
 const evidence = reactive({ evidence_kind: "other", capture_time_claim: "" }),
   note = ref(""),
+  noteKind = ref("note"),
   retrospective = ref(false);
 const markdown = ref(""),
   preview = ref<Preview>(),
@@ -112,6 +120,8 @@ async function loadProject() {
   }
 }
 async function refresh() {
+  clearFile();
+  imports.value = [];
   const p = root.value;
   const [es, as, im] = await Promise.all([
     request<AuditEvent[]>(p + "/events"),
@@ -120,8 +130,8 @@ async function refresh() {
   ]);
   events.value = es.sort((a, b) => a.sequence - b.sequence);
   artifacts.value = as;
-  imports.value = await Promise.all(
-    im.map((i) => request<ImportRecord>(p + "/imports/" + i.import_id)),
+  imports.value = await loadImportDetails(im, (id) =>
+    request<ImportRecord>(p + "/imports/" + encodeURIComponent(id)),
   );
   preview.value = undefined;
   integrity.value = undefined;
@@ -144,6 +154,7 @@ async function select(c: Challenge) {
   edited.value = false;
   tab.value = "overview";
   note.value = "";
+  noteKind.value = "note";
   uploadStatus.value = "";
   Object.assign(operation, {
     command: "",
@@ -267,7 +278,11 @@ async function record() {
 async function addNote() {
   await request(
     root.value + "/notes",
-    { text: note.value, retrospective: retrospective.value },
+    {
+      text: note.value,
+      retrospective: retrospective.value,
+      kind: noteKind.value,
+    },
     "POST",
   );
   note.value = "";
@@ -317,13 +332,15 @@ async function exportZip() {
   preview.value = p;
   const r = await fetch("/api" + root.value + "/export");
   if (!r.ok) throw new Error("档案导出失败：" + r.status);
+  const exported = r.headers.get("X-Dossier-Completeness");
+  preview.value = exportState(p, exported);
   saveBlob(
     await r.blob(),
-    `evidence-${r.headers.get("X-Dossier-Completeness") || p.completeness}-${selectedId.value}.zip`,
+    `evidence-${exported || "incomplete"}-${selectedId.value}.zip`,
   );
   notice.value =
-    "ZIP 是服务器证据快照，含服务器初稿；人工编辑请另存 Markdown。完整性：" +
-    p.completeness;
+    "ZIP 是服务器证据快照，含服务器初稿；人工编辑请另存 Markdown。实际导出完整性：" +
+    (exported || "未确认 / incomplete");
 }
 async function copyCommand() {
   await navigator.clipboard.writeText(operation.command);
@@ -573,7 +590,15 @@ onUnmounted(clearFile);
             <h4>{{ i.original_filename }}</h4>
             <p>
               {{ i.extracted_file_count }} 个文件 ·
-              {{ sizeLabel(i.total_uncompressed_size) }} · 解压完成 / 未执行
+              {{ sizeLabel(i.total_uncompressed_size) }} ·
+              {{
+                i.manifest_verified === true
+                  ? "清单已校验 / 未执行"
+                  : "完整性异常 / 文件访问禁用"
+              }}
+            </p>
+            <p v-if="i.manifest_verified !== true" class="error" role="alert">
+              {{ i.integrity_error || "清单未通过校验" }}
             </p>
             <p v-for="w in i.warnings" :key="w" class="warning">{{ w }}</p>
             <ul class="file-tree">
@@ -829,6 +854,12 @@ docker run --rm --network none ctf-local</pre
         ><h4>选手笔记 / 解题思路</h4>
         <form @submit.prevent="guard('保存笔记', addNote)">
           <fieldset :disabled="!!busy">
+            <label
+              >笔记类型<select v-model="noteKind" aria-label="笔记类型">
+                <option value="note">普通笔记（不计为核心思路）</option>
+                <option value="approach">核心解题思路（人工填写）</option>
+              </select></label
+            >
             <textarea
               aria-label="选手笔记"
               v-model="note"

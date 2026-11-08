@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+import { resolve, sep } from "node:path";
 const zip = Buffer.from(
   "UEsDBBQAAAAAAJxKaF1WnRzILwAAAC8AAAAMAAAAc3JjL2hlbGxvLnB5IyBTeW50aGV0aWMgb2ZmbGluZSBmaXh0dXJlCnByaW50KCJzeW50aGV0aWMiKQpQSwMEFAAAAAAAnEpoXV2kLFYqAAAAKgAAAAoAAABSRUFETUUudHh0U3ludGhldGljIFpJUCBmaXh0dXJlLiBObyByZWFsIGNoYWxsZW5nZS4KUEsBAhQAFAAAAAAAnEpoXVadHMgvAAAALwAAAAwAAAAAAAAAAAAAAIABAAAAAHNyYy9oZWxsby5weVBLAQIUABQAAAAAAJxKaF1dpCxWKgAAACoAAAAKAAAAAAAAAAAAAACAAVkAAABSRUFETUUudHh0UEsFBgAAAAACAAIAcgAAAKsAAAAAAA==",
   "base64",
@@ -120,6 +122,7 @@ test("real FastAPI: full synthetic manual workflow, reload and downloads", async
       .getByAltText("用户上传的原始证据预览")
       .evaluate((img: HTMLImageElement) => img.naturalWidth),
   ).toBeGreaterThan(0);
+  await page.getByLabel("笔记类型", { exact: true }).selectOption("approach");
   await page
     .getByLabel("选手笔记", { exact: true })
     .fill("Synthetic manual approach note, not reconstructed from a Flag.");
@@ -220,16 +223,82 @@ test("real API rejection remains a failure in the UI", async ({
   await expect(
     page.getByRole("button", { name: "刷新", exact: true }),
   ).toBeEnabled();
-  await page
-    .getByLabel("题目 ZIP", { exact: true })
-    .setInputFiles({
-      name: "invalid.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from("Synthetic malformed ZIP"),
-    });
+  await page.getByLabel("题目 ZIP", { exact: true }).setInputFiles({
+    name: "invalid.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("Synthetic malformed ZIP"),
+  });
   await expect(page.getByRole("alert")).toContainText("422");
   await expect(
     page.getByText("失败或结果未知，请刷新核对后重试"),
   ).toBeVisible();
   await expect(page.locator(".import")).toHaveCount(0);
+});
+
+test("real unverified manifest stays visible without blocking sibling import", async ({
+  page,
+  request,
+}) => {
+  test.skip(
+    !process.env.CTF_TEST_DATA_DIR,
+    "Requires explicit isolated synthetic backend data directory",
+  );
+  const name = "Synthetic manifest review " + Date.now();
+  const created = await request.post("http://127.0.0.1:8000/api/challenges", {
+    data: { name, category: "Misc" },
+  });
+  expect(created.status()).toBe(201);
+  const c = await created.json();
+  const records = [];
+  for (let n = 0; n < 2; n++) {
+    const r = await request.post(
+      `http://127.0.0.1:8000/api/challenges/${c.challenge_id}/imports`,
+      {
+        multipart: {
+          file: {
+            name: `synthetic-${n}.zip`,
+            mimeType: "application/zip",
+            buffer: zip,
+          },
+        },
+      },
+    );
+    expect(r.status()).toBe(201);
+    records.push(await r.json());
+  }
+  const dataRoot = resolve(process.env.CTF_TEST_DATA_DIR!);
+  const manifest = resolve(
+    dataRoot,
+    "challenges",
+    c.challenge_id,
+    "imports",
+    records[0].import_id,
+    "manifest.json",
+  );
+  expect(manifest.startsWith(dataRoot + sep)).toBe(true);
+  writeFileSync(manifest, "{}");
+  const urls: string[] = [];
+  page.on("request", (r) => urls.push(r.url()));
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "刷新", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: new RegExp("Misc.*" + name) }).click();
+  await expect(
+    page.getByRole("button", { name: "刷新", exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator(".import")).toHaveCount(2);
+  const bad = page.locator(".import").filter({ hasText: "synthetic-0.zip" });
+  await expect(bad).toContainText("完整性异常 / 文件访问禁用");
+  await expect(bad.getByRole("alert")).toBeVisible();
+  await expect(bad.getByRole("link")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".import")
+      .filter({ hasText: "synthetic-1.zip" })
+      .getByRole("button", { name: "src/hello.py", exact: true }),
+  ).toBeVisible();
+  expect(
+    urls.some((url) => url.endsWith("/imports/" + records[0].import_id)),
+  ).toBe(false);
 });

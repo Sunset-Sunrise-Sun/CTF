@@ -1,10 +1,12 @@
 # MVP 前端工作台（Codex / Part A）
 
+**当前联调后端：`aa35e919533af1c5db7cbc2e037e98127e9502a3`。当前适配测试：15 个单元测试、3 个真实 API 浏览器测试通过，无跳过。文末“PR #7 修复适配”是最新结论；首轮 30cc4d0 / 10+2 用例的原始记录仅作历史证据保留。**
+
 ## 基线与范围
 
 - 基线：`96152b7a66e16d726d50bebb4d833167b140e19c`（PR #6）。
 - 分支：`feat/mvp-frontend-workbench`，Draft PR 目标为 `feat/p1-2-a00-integration`；不自动合并。
-- 实际联调后端：DeepSeek 分支 `feat/mvp-backend-workflow`，固定提交 `30cc4d078a58bfade34edfc6a5c8b475571ae05b`（PR #7）。该版本在独立临时目录运行，没有合入前端分支，没有修改其源码。
+- 首轮实际联调后端（历史记录；当前版本见文末适配节）：DeepSeek 分支 `feat/mvp-backend-workflow`，固定提交 `30cc4d078a58bfade34edfc6a5c8b475571ae05b`（PR #7）。该版本在独立临时目录运行，没有合入前端分支，没有修改其源码。
 - 修改范围仅为 frontend 与本前端交付文档。main、PR #6/#7、后端代码、迁移与冻结 KAT 均不变。
 
 ## 已实现
@@ -69,7 +71,7 @@ npm run test:e2e
 
 E2E 使用本机已安装的 Microsoft Edge (`channel: msedge`)，后端和 Vite 必须按上述端口先启动。需 Node 支持直接载入可擦除 TS 类型（测试环境 Node 24）；没有浏览器时应安装 Edge 或调整测试 channel，不能把无法运行记为通过。E2E 会向该本地后端写入合成项目/题目/证据，须使用隔离空白数据目录，不能指向日常比赛数据。
 
-## 实际测试与验收映射
+## 首轮实际测试与验收映射（历史记录）
 
 最终测试日期：2026-11-08（Asia/Shanghai）。后端独立进程从新的 `work/mvp-acceptance-empty-data` 目录启动。未执行题目脚本、人工申报中的命令或 Docker；合成 PNG 是分类/预览测试素材，不是真实 Flag/平台截图。
 
@@ -115,7 +117,7 @@ E2E 使用本机已安装的 Microsoft Edge (`channel: msedge`)，后端和 Vite
 
 完成后停止，保持 Draft，等待独立验收；不修改或合并 PR #6/#7。
 
-## 原始命令与输出
+## 首轮原始命令与输出（历史记录）
 
 ### npm-ci
 
@@ -217,4 +219,99 @@ exit_code=0
   "local_editor_not_silently_in_server_zip": true,
   "backend_commit": "30cc4d078a58bfade34edfc6a5c8b475571ae05b"
 }
+```
+
+## PR #7 修复适配（当前版本，2026-11-08）
+
+固定后端升级到 aa35e919533af1c5db7cbc2e037e98127e9502a3，独立运行目录的全部 backend/app 文件已逐一对照 Git blob SHA 校验一致；不修改或合入后端代码。Git lazy-fetch 曾连接失败，改用已连接 GitHub 接口读取固定版本原始文件并逐项校验 Git blob SHA 后才进行最终联调。初次启动的混合快照结果不计为新版通过。
+
+### 适配内容
+
+- 新增显式笔记类型选择：普通笔记 kind=note、核心解题思路 kind=approach。默认普通笔记，切换题目恢复默认；不将既有普通笔记自动升级为解题思路。生成初稿时显示服务器返回的 core_approach/core_code/execution_evidence 等缺失项，不自行猜测满足状态。
+- ImportRecord 增加 manifest_verified / integrity_error。只有明确 verified 的记录才请求详情或展示文件入口；缺失状态按未校验处理（需要新版后端）。列表中不可信记录仍可见并显示错误原因，文件列表清空；单条详情 409/其他错误只降级该条，不阻断其余导入。刷新时清除旧文件预览与旧清单，避免继续显示失效内容。
+- 导出完成提示与文件名采用实际响应 X-Dossier-Completeness；incomplete/缺失响应头会把本次显示状态降为不完整，不能用预览先前的 complete 掩盖导出快照异常。ZIP 格式与多次导入目录完全由后端提供，前端不硬编码原 ZIP 路径。
+- 人工编辑稿仍只存浏览器；导出 ZIP 保留服务器初稿。这一既有明确限制没有改变。
+
+### 当前实际验证
+
+- npm run build 成功；npm test：15 passed、0 skipped；npm run test:e2e：3 passed、0 skipped。
+- 新增 5 个单元用例：未验证列表禁止详情/文件、单条 409 不阻断正常记录、缺失或降级校验状态拒绝文件、实际 incomplete 覆盖 complete 预览、缺失导出响应头保守降级。
+- 在新版后端的空白隔离目录 work/mvp-reviewed-release-empty-data 重新执行完整流程；正向用例明确选择 approach 后提交思路，原始下载 ZIP 的 13 项 SHA256SUMS 及 4 项 Artifact 原件哈希复核一致。
+- 第三个浏览器测试显式使用 CTF_TEST_DATA_DIR 指向该隔离合成目录，创建两次导入，仅破坏自己创建的第一份 Manifest。实际 UI 保留异常记录、显示错误且无文件入口，没有请求其详情；第二份导入仍有可访问文件。测试不修改历史用户数据，不生成真实证据。
+- 运行第三个 E2E 前须设置 `$env:CTF_TEST_DATA_DIR = <与隔离后端 CTF_DATA_DIR 相同的绝对路径>`。未设置时会明确 skip，不能计为通过。本次已设置并实际通过。第一、二个 E2E 仍分别验证完整人工流程和真实 422 拒绝。
+- 本轮依赖及 lockfile 未变，未重复 npm ci；首轮 npm ci 结果保留在历史记录。没有重跑后端全量测试，也不以 DeepSeek 报告替代前端联调。
+- 仅更新既有前端 PR #8，不新建 PR、不合并、不修改 PR #6/#7 或 main。修订证据包为 outputs/MVP-frontend-review-evidence.zip；早期证据包是旧后端的历史快照。
+
+### 当前原始命令输出
+
+```text
+$ npm.cmd run build
+
+> ctf-workbench-ui@0.1.0 build
+> vue-tsc --noEmit && vite build
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 13 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                  0.34 kB │ gzip:  0.25 kB
+dist/assets/index-CbN69aTG.css   5.62 kB │ gzip:  1.97 kB
+dist/assets/index-DnxVGPbT.js   97.45 kB │ gzip: 37.51 kB
+✓ built in 920ms
+
+exit_code=0
+```
+
+```text
+$ npm.cmd test
+
+> ctf-workbench-ui@0.1.0 test
+> node --test tests/*.test.mjs
+
+✔ manual claims never become verified execution (1.3624ms)
+✔ agent text cannot masquerade as human execution (0.2183ms)
+✔ proposal is never an execution (0.1442ms)
+✔ missing or contradictory completeness fails closed (0.1588ms)
+✔ edited report is always subject to review (0.1492ms)
+✔ drafts are isolated by challenge (1.0758ms)
+✔ file path segments encode URLs without query injection (0.268ms)
+✔ API reports validation detail and preserves HTTP status (27.6569ms)
+✔ declared oversized preview is cancelled (1.8293ms)
+✔ chunked preview cannot bypass byte cap (2.773ms)
+✔ unverified manifest never fetches details or exposes stale files (1.7641ms)
+✔ one 409 preserves other verified imports (0.2769ms)
+✔ unknown or downgraded verification never exposes files (0.204ms)
+✔ actual incomplete export overrides complete preview (0.335ms)
+✔ missing export header fails closed; complete header cannot remove missing requirements (0.4316ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 233.3772
+
+exit_code=0
+```
+
+```text
+$ npm.cmd run test:e2e
+
+> ctf-workbench-ui@0.1.0 test:e2e
+> playwright test
+
+
+Running 3 tests using 1 worker
+
+(node:52668) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 tests\workbench.spec.ts:13:1 › real FastAPI: full synthetic manual workflow, reload and downloads (4.5s)
+  ok 2 tests\workbench.spec.ts:209:1 › real API rejection remains a failure in the UI (654ms)
+  ok 3 tests\workbench.spec.ts:238:1 › real unverified manifest stays visible without blocking sibling import (801ms)
+
+  3 passed (7.8s)
+
+exit_code=0
 ```

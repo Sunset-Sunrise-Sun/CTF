@@ -1,3 +1,38 @@
+import type { ImportRecord } from "./domain";
+export async function loadImportDetails(
+  records: ImportRecord[],
+  getDetail: (id: string) => Promise<ImportRecord>,
+): Promise<ImportRecord[]> {
+  return Promise.all(
+    records.map(async (record) => {
+      if (record.manifest_verified !== true)
+        return {
+          ...record,
+          files: [],
+          manifest_verified: false,
+          integrity_error: record.integrity_error || "导入清单未通过校验",
+        };
+      try {
+        const detail = await getDetail(record.import_id);
+        return detail.manifest_verified === true
+          ? detail
+          : {
+              ...detail,
+              files: [],
+              manifest_verified: false,
+              integrity_error: detail.integrity_error || "导入详情未通过校验",
+            };
+      } catch (error) {
+        return {
+          ...record,
+          files: [],
+          manifest_verified: false,
+          integrity_error: String(error),
+        };
+      }
+    }),
+  );
+}
 export class ApiError extends Error {
   status: number;
   constructor(status: number, detail: string) {
