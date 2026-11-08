@@ -863,7 +863,7 @@ docker run --rm --network none ctf-local</pre
             <span v-if="aiStatus?.network_enabled && aiStatus.credentials_configured">已配置联网开关与凭证（实际连通性以请求结果为准）</span>
             <span v-else-if="aiStatus?.network_enabled">联网开关已开启，但尚未检测到 API Key</span>
             <span v-else>服务器未开启模型联网</span>
-            <small>{{ aiStatus?.provider || 'DeepSeek' }} · {{ aiStatus?.model_id || 'deepseek-chat' }}</small>
+            <small>{{ aiStatus?.provider || 'DeepSeek' }} · {{ aiStatus?.model_id || 'deepseek-flash' }}</small>
             <button type="button" @click="guard('检查模型状态', loadAIStatus)">刷新状态</button>
             <button
               type="button"
