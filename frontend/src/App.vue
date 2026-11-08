@@ -47,6 +47,12 @@ const busy = ref(""),
   tab = ref("overview"),
   progress = ref<number | null>(null),
   uploadStatus = ref(""),
+  aiQuestion = ref(""),
+  aiAnswer = ref(""),
+  aiBusy = ref(false),
+  aiTestBusy = ref(false),
+  aiConsent = ref(false),
+  aiStatus = ref<{network_enabled:boolean; provider:string; model_id:string; credentials_configured:boolean; execution_enabled:boolean}>(),
   integrity = ref<{
     valid: boolean;
     earliest_affected_sequence?: number | null;
@@ -98,6 +104,9 @@ const selectedId = computed(() => selected.value?.challenge_id),
   );
 const suggestions = computed(() =>
     events.value.filter((e) => eventLabel(e).startsWith("ai_suggestion")),
+  ),
+  aiHistory = computed(() =>
+    events.value.filter((e) => e.event_type === "agent_message"),
   ),
   status = computed(() => completeness(preview.value, edited.value));
 let previewVersion = 0;
@@ -156,6 +165,7 @@ async function refresh() {
 async function reload() {
   challenges.value = await request<Challenge[]>("/challenges");
   await loadProject();
+  await loadAIStatus();
   if (selected.value) await refresh();
 }
 async function select(c: Challenge) {
@@ -206,6 +216,71 @@ async function select(c: Challenge) {
     notice.value = "浏览器存储不可用，请手动下载草稿。";
   }
   await Promise.all([refresh(), draft.value.load()]);
+}
+function formatIncludedFiles(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) {
+    return "无（仅使用题目描述、规则摘要和近期记录）";
+  }
+  return value.map((item) => String(item)).join("、");
+}
+async function loadAIStatus() {
+  try {
+    aiStatus.value = await request<{
+      network_enabled: boolean;
+      provider: string;
+      model_id: string;
+      credentials_configured: boolean;
+      execution_enabled: boolean;
+    }>("/model/status");
+  } catch {
+    aiStatus.value = undefined;
+  }
+}
+async function testAIConnection() {
+  if (!aiStatus.value?.network_enabled || !aiStatus.value.credentials_configured) return;
+  aiTestBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const result = await request<{
+      success: boolean;
+      provider: string;
+      model_id: string;
+      sent_synthetic_content_only: boolean;
+    }>("/model/test", { confirm_synthetic_request: true }, "POST", "/api", 120000);
+    notice.value = result.success
+      ? `API 连通成功：${result.provider} · ${result.model_id}。仅发送了固定合成提示，没有发送题目内容。`
+      : "API 连通测试未成功。";
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    aiTestBusy.value = false;
+    await loadAIStatus();
+  }
+}
+async function askAI() {
+  if (!selectedId.value || !aiQuestion.value.trim() || !aiConsent.value) return;
+  aiBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const result = await request<{
+      event_id:string; answer:string; provider_id:string; model_id:string;
+      included_files:string[]; verification_status:string;
+    }>(root.value + "/ai/chat", {
+      question: aiQuestion.value.trim(),
+      confirm_external_processing: true,
+    }, "POST", "/api", 120000);
+    aiAnswer.value = result.answer;
+    aiQuestion.value = "";
+    aiConsent.value = false;
+    notice.value = "AI 建议已记录到事件时间线；未执行任何命令。";
+    await refresh();
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    aiBusy.value = false;
+  }
 }
 async function saveProject() {
   project.value = await request<Project>("/project", { ...projectForm }, "PUT");
@@ -595,6 +670,7 @@ onUnmounted(clearFile);
           <button
             v-for="t in [
               ['overview', '题目与导入'],
+              ['ai', 'AI 解题助手'],
               ['files', '文件预览'],
               ['operations', '运行记录'],
               ['timeline', '事件时间线'],
@@ -778,6 +854,51 @@ docker run --rm --network none ctf-local</pre
             >
             <p>仅适用于已检查并信任的 Dockerfile；自行核对挂载、网络与规则。</p>
           </details>
+        </section>
+        <section v-show="tab === 'ai'" class="panel ai-panel">
+          <h3>AI 辅助解题 · DeepSeek</h3>
+          <p class="muted">模型只提供分析建议，不执行命令、不访问比赛目标、不提交 Flag。AI 回答会写入事件时间线，并标记为未验证建议。</p>
+          <div class="ai-status">
+            <strong>连接状态：</strong>
+            <span v-if="aiStatus?.network_enabled && aiStatus.credentials_configured">已配置联网开关与凭证（实际连通性以请求结果为准）</span>
+            <span v-else-if="aiStatus?.network_enabled">联网开关已开启，但尚未检测到 API Key</span>
+            <span v-else>服务器未开启模型联网</span>
+            <small>{{ aiStatus?.provider || 'DeepSeek' }} · {{ aiStatus?.model_id || 'deepseek-flash' }}</small>
+            <button type="button" @click="guard('检查模型状态', loadAIStatus)">刷新状态</button>
+            <button
+              type="button"
+              :disabled="aiTestBusy || !aiStatus?.network_enabled || !aiStatus?.credentials_configured"
+              @click="testAIConnection"
+            >{{ aiTestBusy ? "正在发送合成测试…" : "测试 API 连接（仅发送固定 OK 提示）" }}</button>
+          </div>
+          <p class="muted">连接测试只向 DeepSeek 发送固定的“Reply with OK”提示，不包含题目描述、附件、比赛规则或聊天记录；实际解题请求仍需单独勾选数据外发确认。</p>
+          <p v-if="selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0'" class="warning">
+            当前题目 AI 使用等级为 {{ selected.ai_usage_level }}，按规则不允许调用 AI。请先核对比赛规则并正确设置等级。
+          </p>
+          <label>向 AI 提问
+            <textarea v-model="aiQuestion" maxlength="8000" rows="5" placeholder="例如：请分析这道 Web 题的入口、可能的漏洞点，并给出逐步验证思路。"></textarea>
+          </label>
+          <label class="consent">
+            <input type="checkbox" v-model="aiConsent" />
+            我确认将本题描述、项目比赛规则摘要、最近 20 条操作/证据记录、已导入文本文件及符合限制的二进制静态元数据/字符串发送给配置的模型服务进行处理。
+          </label>
+          <p class="muted">不会发送二进制附件原文，也不会执行二进制文件。符合限制的小型 ELF/PE 等文件仅提取头部信息和可打印字符串。导入文件会先校验 SHA-256，并进行常见密钥格式脱敏；仍请勿上传密码、个人隐私或无权外传的材料。</p>
+          <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
+            {{ aiBusy ? '正在请求模型…' : '发送问题并获取分析' }}
+          </button>
+          <section v-if="aiHistory.length" class="ai-answer">
+            <h4>本题 AI 对话记录（均为未验证建议）</h4>
+            <article v-for="turn in aiHistory" :key="turn.event_id" class="ai-turn">
+              <small>{{ turn.occurred_at }} · {{ turn.payload.model_id }}</small>
+              <strong>你：</strong>
+              <p>{{ turn.payload.question }}</p>
+              <strong>AI：</strong>
+              <pre>{{ turn.payload.answer }}</pre>
+              <small>本轮附加读取文件：{{ formatIncludedFiles(turn.payload.included_files) }}</small>
+              <small>关联事件 #{{ turn.sequence }} · 未执行 · 未验证建议</small>
+            </article>
+            <p class="muted">请自行检查建议，手动执行后再将真实结果和证据补录到工作台。</p>
+          </section>
         </section>
         <section v-show="tab === 'timeline'" class="panel">
           <div class="section-title">

@@ -1,0 +1,93 @@
+# AI 辅助解题（DeepSeek）接入
+
+本功能在既有 Provider 基础设施上增加工作台业务入口，不启用工具执行器。
+
+## 能力
+
+- 通过 `POST /api/challenges/{cid}/ai/chat` 对当前题目进行多轮分析，并按 Crypto / Web / Pwn / Reverse / Misc 提供分类分析框架。
+- 工作台提供独立 API 连通测试：`POST /api/model/test`。用户点击后只发送固定的 `Reply with OK` 合成提示，不包含题目、附件、比赛规则或聊天记录；该测试与实际题目分析的数据外发确认相互独立。
+- 上下文包括题目描述、比赛 AI 政策摘要、最近 20 条事件，以及最多 12 个经过清单/事件绑定和 SHA-256 校验的文本导入文件或独立上传的文本证据。
+- 仅读取白名单文本扩展名；单文本文件最多 32 KiB。对不超过 2 MiB 的 ELF/PE 等指定二进制，仅提取文件头元数据和最多 100 条可打印 ASCII 字符串，不发送二进制原文、不执行文件。总上下文最多约 180 KiB。
+- 对上下文和用户问题执行常见 API Key、password、Bearer Token 格式脱敏。
+- 每次请求必须由用户勾选数据外发确认；服务器还必须显式设置联网开关。
+- 每次模型调用记录 `model_call` 状态事件；成功回答记录 `agent_message`，标记 `unverified_suggestion`。
+- 不运行命令、不调用工具、不访问题目目标、不提交 Flag。人工执行仍由选手在工作台外完成并补录。
+- 回答采用证据优先流程：列出已知事实、最多三个有证据的假设、一个优先手动验证步骤、预期输出和需要回传的证据；缺少关键输入时先问一个聚焦问题，不虚构环境或验证结果。
+
+## 本机配置（Windows PowerShell）
+
+在启动后端的同一个 PowerShell 会话中设置：
+
+```powershell
+$env:CTF_MODEL_NETWORK_ENABLED = "true"
+$env:DEEPSEEK_API_KEY = "你的 DeepSeek API Key"
+$env:CTF_MODEL_ID = "deepseek-flash"
+$env:CTF_MODEL_API_KEY_ENV = "DEEPSEEK_API_KEY"
+$env:CTF_MODEL_BASE_URL = "https://api.deepseek.com"
+```
+
+然后在该会话中启动后端。若后端由其他终端、IDE 或服务管理器启动，必须在那个进程的环境中配置变量。不要把 Key 写入仓库文件、命令历史、截图或题目材料。
+
+### 推荐：使用安全启动脚本（Windows）
+
+不想把 Key 输入命令行或写入环境文件时，使用仓库提供的隐藏输入启动脚本：
+
+```powershell
+.\backend\start-ai-backend.ps1 -DataDir "C:\Users\<用户名>\Documents\Codex\CTF-MVP-A00-acceptance-8002-5174\data" -Port 8002
+```
+
+脚本会通过 `Read-Host -AsSecureString` 隐藏输入 API Key，仅在当前 PowerShell 进程及其后端子进程中设置环境变量；不会写入仓库、配置文件或用户级永久环境变量。脚本要求数据目录已存在、端口未被占用，并且只绑定 `127.0.0.1`。如果 8002 仍由旧后端占用，脚本会拒绝启动，不会自动停止任何进程。
+
+前端在另一个 PowerShell 窗口启动，使用专门指向 8002 的 Vite 配置（不会沿用开发默认的 8000 代理）：
+
+```powershell
+Set-Location .\frontend
+npm run dev -- --config vite.a00.config.ts --host 127.0.0.1 --port 5174 --strictPort
+```
+
+打开 `http://127.0.0.1:5174/`。该配置只绑定本机回环地址；若 5174 已被占用会直接失败，不会自动换端口。
+
+关闭联网：
+
+```powershell
+Remove-Item Env:CTF_MODEL_NETWORK_ENABLED -ErrorAction SilentlyContinue
+```
+
+真实发送题目内容前，建议先用合成请求单独验证 API Key 与网络连通性：
+
+```powershell
+cd backend
+$env:CTF_DATA_DIR = "C:\CTF-AI-Smoke-Isolated"
+python -m app.ai_smoke_cli --allow-model-network
+```
+
+该命令要求联网环境变量已开启，并再次要求显式命令行确认；只发送固定的合成 OK 提示，不发送题目内容，记录写入单独的 `model-smoke.sqlite3`，不打印模型回答。成功后再打开工作台使用 AI 面板。
+
+配置通过 `GET /api/model/status` 查看。该接口只返回联网开关、模型 ID 和凭证是否存在，不返回 Key，也不代表真实 API 已经联通。点击 AI 面板中的“测试 API 连接”会调用 `POST /api/model/test`，在服务器联网开关与凭证均就绪时执行一次合成请求，成功才证明当前后端进程能够连接配置的 Provider。
+
+## 比赛规则
+
+- `unknown` 和 `A0` 题目禁止调用 AI。
+- `A1` / `A2` 仅表示题目配置允许进入 AI 辅助入口；仍须遵守项目规则摘要和比赛官方规则。
+- 上传题目材料前确认自己有权将相关内容发送给所配置的模型服务。前端每次请求前都要求明确确认。
+
+## 错误码
+
+- `model_network_disabled`：服务端联网开关关闭。
+- `missing_credentials`：找不到指定环境变量中的 Key。
+- `ai_usage_not_permitted`：题目等级不允许 AI。
+- `rate_limited`、`timeout`、`authentication`、`upstream_error`、`transport_error`、`invalid_response`：Provider 错误；不会自动重试。
+
+## 自动化端到端检查
+
+在已安装 Python 后端依赖、Node 依赖和 Playwright Chromium 的环境中，可从 `frontend` 目录运行：
+
+```powershell
+npm run test:e2e:ai
+```
+
+该专用测试会自动启动隔离的本地 FastAPI 与 Vite 服务，使用独立端口 `18002` / `15174`，并为每次运行生成独立数据目录；启动时拒绝复用已有服务，避免误连本机其他 CTF 服务或写入其数据。模型联网强制关闭；测试验证 AI 面板、题目等级为 A2 时的 UI 展示、用户勾选数据外发确认，以及服务端未开启联网时的 503 拒绝。测试不会连接真实模型，也不会发送题目内容到外部服务。
+
+## 验收边界
+
+Mock 测试只验证业务门控、事件记录和脱敏；不等于真实 DeepSeek 网络验证。真实连通性需在用户自己的机器上设置合法凭证后，通过工作台发送合成题目测试。当前服务是无认证的本地单用户工作台，不应暴露到公网或不可信局域网。
