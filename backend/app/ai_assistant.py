@@ -204,7 +204,7 @@ def collect_challenge_context(
                 continue
             suffix = relative.suffix.lower()
             is_text = suffix in TEXT_SUFFIXES and entry.size <= MAX_FILE_BYTES
-            is_binary = suffix in BINARY_SUFFIXES and entry.size <= MAX_BINARY_BYTES
+            is_binary = (suffix in BINARY_SUFFIXES or entry.media_type in {"application/x-elf", "application/vnd.microsoft.portable-executable"}) and entry.size <= MAX_BINARY_BYTES
             if not is_text and not is_binary:
                 continue
             target, verified_entry = imported_file(
@@ -242,7 +242,7 @@ def collect_challenge_context(
             break
         suffix = Path(artifact.original_filename).suffix.lower()
         is_text = suffix in TEXT_SUFFIXES and artifact.size <= MAX_FILE_BYTES
-        is_binary = suffix in BINARY_SUFFIXES and artifact.size <= MAX_BINARY_BYTES
+        is_binary = (suffix in BINARY_SUFFIXES or artifact.media_type in {"application/x-elf", "application/vnd.microsoft.portable-executable"}) and artifact.size <= MAX_BINARY_BYTES
         if not is_text and not is_binary:
             continue
         data = artifact_store.read_verified(artifact.sha256)
