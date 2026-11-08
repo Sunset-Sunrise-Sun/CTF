@@ -50,6 +50,7 @@ foreach ($name in $variableNames) {
 
 $secureKey = Read-Host "Enter DeepSeek API Key (input hidden)" -AsSecureString
 if ($secureKey.Length -eq 0) {
+    $secureKey.Dispose()
     throw "An API Key is required. No service was started."
 }
 
