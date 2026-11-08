@@ -788,6 +788,7 @@ def create_app(
                 project=app.state.project.get(),
                 store=app.state.store,
                 workspace_challenge=app.state.workspace.challenge(cid),
+                artifact_store=app.state.artifacts,
                 question=body.question,
             )
         except ProviderError as error:
