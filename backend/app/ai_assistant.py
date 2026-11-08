@@ -138,7 +138,7 @@ def static_binary_summary(data: bytes) -> str:
         if len(found) >= 100:
             break
     details.extend(found)
-    return "\\n".join(details)
+    return "\n".join(details)
 
 
 def redact_sensitive(text: str) -> str:
