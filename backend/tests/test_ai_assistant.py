@@ -167,3 +167,70 @@ def test_static_binary_summary_extracts_metadata_without_execution():
     assert "Class: ELF64" in summary
     assert "Machine: 62" in summary
     assert "SYNTHETIC_BINARY_MARKER" in summary
+
+
+
+def test_model_status_reports_credential_presence_without_exposing_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-status-secret")
+    with TestClient(create_app(tmp_path / "data")) as client:
+        response = client.get("/api/model/status")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["network_enabled"] is True
+        assert payload["credentials_configured"] is True
+        assert payload["execution_enabled"] is False
+        assert "synthetic-status-secret" not in response.text
+        assert "api_key" not in response.text.lower()
+
+
+def test_ai_chat_redacts_secrets_before_provider_and_audit(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+    secret = "ghp_" + "z" * 30
+    captured = {}
+
+    def handler(request):
+        captured["body"] = request.read().decode("utf-8")
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "分析完成，测试令牌 sk-" + "q" * 24}}]},
+        )
+
+    config = ProviderConfig(
+        provider_id="deepseek",
+        adapter="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    monkeypatch.setattr(
+        "app.ai_assistant.build_deepseek_provider",
+        lambda: DeepSeekAdapter(config, httpx.MockTransport(handler)),
+    )
+    with TestClient(create_app(tmp_path / "data")) as client:
+        challenge = client.post(
+            "/api/challenges",
+            json={
+                "name": "Synthetic secret redaction",
+                "category": "Misc",
+                "description": "Fixture token " + secret,
+                "ai_usage_level": "A2",
+            },
+        ).json()
+        cid = challenge["challenge_id"]
+        response = client.post(
+            f"/api/challenges/{cid}/ai/chat",
+            json={
+                "question": "Please inspect " + secret,
+                "confirm_external_processing": True,
+            },
+        )
+        assert response.status_code == 201
+        assert secret not in captured["body"]
+        assert secret not in response.text
+        assert "[REDACTED_SECRET]" in captured["body"]
+        events = client.get(f"/api/challenges/{cid}/events").json()
+        serialized = str(events)
+        assert secret not in serialized
+        assert "[REDACTED_SECRET]" in serialized
