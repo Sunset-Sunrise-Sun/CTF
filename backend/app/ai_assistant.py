@@ -33,6 +33,9 @@ class AIChatRequest(Model):
     question: str = Field(min_length=1, max_length=8000)
     confirm_external_processing: bool = False
 
+class AIConnectivityTestRequest(Model):
+    confirm_synthetic_request: bool = False
+
 
 class AIChatResponse(Model):
     event_id: str
@@ -279,6 +282,27 @@ def collect_challenge_context(
         "observations. Respect the competition AI policy supplied above."
     )
     return "\n\n".join(sections), included
+
+
+
+async def test_deepseek_connection() -> tuple[str, str]:
+    """Send only a fixed synthetic prompt; never include challenge/user data."""
+    if not model_network_enabled():
+        raise ProviderError("model_network_disabled")
+    provider = build_deepseek_provider()
+    response = await provider.complete(
+        ModelRequest(
+            messages=[
+                Message(
+                    role="user",
+                    content="Reply with OK. This is a synthetic connectivity test; no challenge data is included.",
+                )
+            ]
+        )
+    )
+    if not response.text.strip():
+        raise ProviderError("empty_response")
+    return response.provider_id, response.model_id
 
 
 async def ask_challenge(
