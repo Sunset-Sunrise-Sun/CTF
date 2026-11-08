@@ -6,16 +6,16 @@ export default defineConfig({
   workers: 1,
   timeout: 60000,
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: "http://127.0.0.1:15174",
     browserName: "chromium",
     viewport: { width: 1440, height: 1000 },
     trace: "retain-on-failure",
   },
   webServer: [
     {
-      command: "python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
+      command: "python -m uvicorn app.main:app --host 127.0.0.1 --port 18002",
       cwd: "../backend",
-      url: "http://127.0.0.1:8000/api/health",
+      url: "http://127.0.0.1:18002/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
       env: {
@@ -24,9 +24,9 @@ export default defineConfig({
       },
     },
     {
-      command: "npm run dev -- --host 127.0.0.1 --port 5173",
+      command: "npm run dev -- --host 127.0.0.1 --port 15174",
       cwd: ".",
-      url: "http://127.0.0.1:5173",
+      url: "http://127.0.0.1:15174",
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
     },
