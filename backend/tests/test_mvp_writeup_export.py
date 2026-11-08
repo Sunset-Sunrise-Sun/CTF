@@ -601,6 +601,7 @@ def test_export_archive_contains_all_required_entries(
         "logs/events.json",
         "logs/timeline.json",
         "writeup.md",
+        "writeup_generated.md",
         "manifest.json",
         "ai_disclosure.md",
         "SHA256SUMS",
@@ -680,6 +681,9 @@ def test_export_manifest_describes_dossier(client: TestClient) -> None:
     }
     assert manifest["tool_execution_enabled"] is False
     assert manifest["ai_suggestions_are_not_actions"] is True
+    assert manifest["writeup"]["final_source"] == "generated"
+    assert manifest["writeup"]["human"] is None
+    assert manifest["writeup"]["integrity_error"] is None
     assert len(manifest["imports"]) == 1
     assert manifest["imports"][0]["import_id"] == ctx["import"]["import_id"]
     assert len(manifest["artifacts"]) == len(api_artifacts)
@@ -692,6 +696,25 @@ def test_export_manifest_describes_dossier(client: TestClient) -> None:
     assert flag["sha256"] == ctx["artifacts"]["flag_capture"]["sha256"]
     assert flag["capture_time_claim"] == CAPTURE_CLAIM
     assert flag["original_filename"] == "flag_capture.png"
+
+
+def assert_generated_writeup_without_human(
+    members: dict[str, bytes], markdown: str, manifest: dict
+) -> None:
+    """Without a saved human draft the final writeup is the generated draft."""
+    note = "> 注意：尚未保存人工稿，本文件为服务器生成的初稿。"
+    final = members["writeup.md"].decode("utf-8")
+    assert final.startswith(note)
+    assert markdown in final
+    assert members["writeup_generated.md"].decode("utf-8") == markdown
+    writeup = manifest["writeup"]
+    assert writeup["final_source"] == "generated"
+    assert writeup["human"] is None
+    assert writeup["integrity_error"] is None
+    assert writeup["final_sha256"] == sha256_hex(members["writeup.md"])
+    assert writeup["final_size"] == len(members["writeup.md"])
+    assert writeup["generated"]["sha256"] == sha256_hex(members["writeup_generated.md"])
+    assert writeup["generated"]["size"] == len(members["writeup_generated.md"])
 
 
 def test_export_bytes_match_uploaded_synthetic_evidence(
@@ -719,7 +742,9 @@ def test_export_bytes_match_uploaded_synthetic_evidence(
         assert members[arcname] == data
         assert sha256_hex(members[arcname]) == ctx["artifacts"][kind]["sha256"]
 
-    assert members["writeup.md"].decode("utf-8") == markdown
+    assert_generated_writeup_without_human(
+        members, markdown, json.loads(members["manifest.json"])
+    )
 
     disclosure = members["ai_disclosure.md"].decode("utf-8")
     assert "否" in disclosure
@@ -933,7 +958,9 @@ def test_writeup_and_export_end_to_end_workflow(data_root: Path) -> None:
         import_prefix = f"challenge/imports/{import_body['import_id']}"
         assert members[f"{import_prefix}/original.zip"] == ZIP_BYTES
         assert members["challenge/rules/rules.pdf"] == RULE_BYTES
-        assert members["writeup.md"].decode("utf-8") == preview["markdown"]
+        assert_generated_writeup_without_human(
+            members, preview["markdown"], json.loads(members["manifest.json"])
+        )
         assert members["logs/events.json"]
         timeline = json.loads(members["logs/timeline.json"])
         assert [entry["sequence"] for entry in timeline] == [
