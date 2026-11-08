@@ -281,3 +281,54 @@ def test_ai_chat_second_turn_receives_first_turn_as_recorded_context(tmp_path, m
         assert "第一轮问题：分析密文格式" in requests[1]
         assert "第一轮：先确认输入格式。" in requests[1]
         assert "第二轮问题：继续分析" in requests[1]
+
+
+def test_synthetic_model_connectivity_requires_explicit_consent_and_network_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv("CTF_MODEL_NETWORK_ENABLED", raising=False)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        no_consent = client.post("/api/model/test", json={"confirm_synthetic_request": False})
+        assert no_consent.status_code == 400
+        consent_but_disabled = client.post(
+            "/api/model/test", json={"confirm_synthetic_request": True}
+        )
+        assert consent_but_disabled.status_code == 503
+        assert consent_but_disabled.json()["detail"]["code"] == "model_network_disabled"
+
+
+def test_synthetic_model_connectivity_sends_only_fixed_prompt(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+    captured = {}
+
+    def handler(request):
+        captured["authorization"] = request.headers.get("authorization")
+        captured["body"] = request.read().decode("utf-8")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "OK"}}]}
+        )
+
+    config = ProviderConfig(
+        provider_id="deepseek",
+        adapter="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    monkeypatch.setattr(
+        "app.ai_assistant.build_deepseek_provider",
+        lambda: DeepSeekAdapter(config, httpx.MockTransport(handler)),
+    )
+    with TestClient(create_app(tmp_path / "data")) as client:
+        response = client.post(
+            "/api/model/test", json={"confirm_synthetic_request": True}
+        )
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "provider": "deepseek",
+        "model_id": "deepseek-chat",
+        "sent_synthetic_content_only": True,
+    }
+    assert captured["authorization"] == "Bearer synthetic-test-key"
+    assert "Reply with OK" in captured["body"]
+    assert "challenge" not in captured["body"].lower()
