@@ -43,6 +43,10 @@ This repository is public. Commit application code, documentation, tests, and sy
 - [Test report](docs/P1_TEST_REPORT.md)
 - [Artifact/Event constraint fix report](docs/P1_FIX_REPORT.md)
 
+## AI-assisted solving (opt-in DeepSeek)
+
+- [AI setup, explicit data-sharing consent, context limits, safety rules and real-provider verification](docs/AI_ASSISTED_SOLVING.md)
+
 ## MVP backend workflow (manual execution mode)
 
 - [Backend API contract, security model, demo steps and known limitations](docs/MVP_BACKEND.md)
