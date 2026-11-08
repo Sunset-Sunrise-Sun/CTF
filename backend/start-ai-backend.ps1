@@ -10,6 +10,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$originalLocation = Get-Location
+$plainKey = $null
 
 if (-not [System.IO.Path]::IsPathRooted($DataDir)) {
     throw "DataDir must be an absolute path. Refusing an ambiguous data location."
@@ -81,9 +83,11 @@ finally {
     if ($bstr -ne [IntPtr]::Zero) {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     }
+    $plainKey = $null
     if ($null -ne $secureKey) {
         $secureKey.Dispose()
     }
+    Set-Location -LiteralPath $originalLocation
     foreach ($name in $variableNames) {
         $oldValue = $previousValues[$name]
         if ($null -eq $oldValue) {
