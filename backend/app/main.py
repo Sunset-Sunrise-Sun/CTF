@@ -67,7 +67,7 @@ from .writeups import (
 from .store import Store
 from .workspace import Workspace
 from .writeup import build_writeup_preview
-from .ai_assistant import AIChatRequest, AIChatResponse, ask_challenge, model_network_enabled
+from .ai_assistant import AIChatRequest, AIChatResponse, ask_challenge, model_network_enabled, redact_sensitive
 from .providers import ProviderError
 
 # Multipart framing (boundary, per-part headers, filename) is allowed on top of
@@ -806,7 +806,7 @@ def create_app(
             cid, "agent", "agent_message",
             {
                 "provider_id": provider_id, "model_id": model_id,
-                "answer": answer, "included_files": included,
+                "question": redact_sensitive(body.question), "answer": answer, "included_files": included,
                 "verification_status": "unverified_suggestion",
                 "execution_performed": False,
             },
