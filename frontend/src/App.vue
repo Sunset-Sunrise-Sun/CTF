@@ -845,7 +845,7 @@ docker run --rm --network none ctf-local</pre
           </label>
           <label class="consent">
             <input type="checkbox" v-model="aiConsent" />
-            我确认将本题描述、已导入的文本文件、符合限制的二进制静态元数据/字符串及相关记录发送给配置的模型服务进行处理。
+            我确认将本题描述、项目比赛规则摘要、最近 20 条操作/证据记录、已导入文本文件及符合限制的二进制静态元数据/字符串发送给配置的模型服务进行处理。
           </label>
           <p class="muted">不会发送二进制附件原文，也不会执行二进制文件。符合限制的小型 ELF/PE 等文件仅提取头部信息和可打印字符串。导入文件会先校验 SHA-256，并进行常见密钥格式脱敏；仍请勿上传密码、个人隐私或无权外传的材料。</p>
           <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
