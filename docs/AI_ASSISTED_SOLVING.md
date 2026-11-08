@@ -28,6 +28,16 @@ $env:CTF_MODEL_BASE_URL = "https://api.deepseek.com"
 
 然后在该会话中启动后端。若后端由其他终端、IDE 或服务管理器启动，必须在那个进程的环境中配置变量。不要把 Key 写入仓库文件、命令历史、截图或题目材料。
 
+### 推荐：使用安全启动脚本（Windows）
+
+不想把 Key 输入命令行或写入环境文件时，使用仓库提供的隐藏输入启动脚本：
+
+```powershell
+.\\backend\\start-ai-backend.ps1 -DataDir "C:\\Users\\<用户名>\\Documents\\Codex\\CTF-MVP-A00-acceptance-8002-5174\\data" -Port 8002
+```
+
+脚本会通过 `Read-Host -AsSecureString` 隐藏输入 API Key，仅在当前 PowerShell 进程及其后端子进程中设置环境变量；不会写入仓库、配置文件或用户级永久环境变量。脚本要求数据目录已存在、端口未被占用，并且只绑定 `127.0.0.1`。如果 8002 仍由旧后端占用，脚本会拒绝启动，不会自动停止任何进程。
+
 关闭联网：
 
 ```powershell
