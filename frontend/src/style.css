@@ -560,3 +560,21 @@ progress {
   max-height: 65vh;
   white-space: pre-wrap;
 }
+
+.ai-turn {
+  border-top: 1px solid #dce5ec;
+  padding: 14px 0;
+  margin-top: 12px;
+}
+.ai-turn p {
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-turn pre {
+  max-height: none;
+  overflow: visible;
+  background: #fff;
+  border-left: 2px solid #9fbfb6;
+  padding: 8px 12px;
+}
