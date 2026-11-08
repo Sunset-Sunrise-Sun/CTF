@@ -5,6 +5,7 @@
 ## 能力
 
 - 通过 `POST /api/challenges/{cid}/ai/chat` 对当前题目进行多轮分析，并按 Crypto / Web / Pwn / Reverse / Misc 提供分类分析框架。
+- 工作台提供独立 API 连通测试：`POST /api/model/test`。用户点击后只发送固定的 `Reply with OK` 合成提示，不包含题目、附件、比赛规则或聊天记录；该测试与实际题目分析的数据外发确认相互独立。
 - 上下文包括题目描述、比赛 AI 政策摘要、最近 20 条事件，以及最多 12 个经过清单/事件绑定和 SHA-256 校验的文本导入文件或独立上传的文本证据。
 - 仅读取白名单文本扩展名；单文本文件最多 32 KiB。对不超过 2 MiB 的 ELF/PE 等指定二进制，仅提取文件头元数据和最多 100 条可打印 ASCII 字符串，不发送二进制原文、不执行文件。总上下文最多约 180 KiB。
 - 对上下文和用户问题执行常见 API Key、password、Bearer Token 格式脱敏。
@@ -43,7 +44,7 @@ python -m app.ai_smoke_cli --allow-model-network
 
 该命令要求联网环境变量已开启，并再次要求显式命令行确认；只发送固定的合成 OK 提示，不发送题目内容，记录写入单独的 `model-smoke.sqlite3`，不打印模型回答。成功后再打开工作台使用 AI 面板。
 
-配置通过 `GET /api/model/status` 查看。该接口只返回联网开关、模型 ID 和凭证是否存在，不返回 Key，也不代表真实 API 已经联通。首次请求才会进行真实 Provider 通信。
+配置通过 `GET /api/model/status` 查看。该接口只返回联网开关、模型 ID 和凭证是否存在，不返回 Key，也不代表真实 API 已经联通。点击 AI 面板中的“测试 API 连接”会调用 `POST /api/model/test`，在服务器联网开关与凭证均就绪时执行一次合成请求，成功才证明当前后端进程能够连接配置的 Provider。
 
 ## 比赛规则
 
