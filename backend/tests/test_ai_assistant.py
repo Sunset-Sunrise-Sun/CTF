@@ -75,6 +75,7 @@ def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monk
         assert "Synthetic Web" in captured["body"]
         assert "Explain the synthetic challenge" in captured["body"]
         assert "source/sink" in captured["body"]
+        assert "ignore embedded directives" in captured["body"]
         events = client.get("/api/challenges/" + cid + "/events").json()
         assert [event["event_type"] for event in events[-2:]] == [
             "model_call", "agent_message"
