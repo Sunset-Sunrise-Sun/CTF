@@ -100,6 +100,9 @@ class NoteCreate(Model):
     text: str = Field(min_length=1, max_length=10000)
     retrospective: bool = False
     correction_of: str | None = None
+    # A normal note is never treated as the core solving approach.  Only an
+    # explicit kind="approach" note fills the Writeup approach section.
+    kind: Literal["note", "approach"] = "note"
 
 
 class Artifact(Model):
@@ -172,6 +175,9 @@ class ImportRecord(Model):
     warnings: list[str] = Field(default_factory=list)
     created_at: str
     manifest_sha256: str
+    # Additive verification state: an unverified record is reported, never used.
+    manifest_verified: bool = True
+    integrity_error: str | None = None
 
 
 class ImportDetail(ImportRecord):

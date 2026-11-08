@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 import sqlite3
@@ -22,14 +23,18 @@ from .artifacts import (
 )
 from .export import build_export_archive
 from .imports import (
+    ImportIssue,
     ImportLimits,
+    ManifestIntegrityError,
     ZipValidationError,
+    bind_manifest,
     discard_staged_import,
     import_directory,
-    imported_file_path,
+    imported_file,
     install_staged_import,
-    list_imports,
     read_manifest,
+    record_from_event,
+    scan_imports,
     stage_archive,
 )
 from .models import (
@@ -558,7 +563,60 @@ def create_app(
     def imports_list(cid: str):
         exists(cid)
         workspace_challenge = app.state.workspace.challenge(cid)
-        return [manifest.record() for manifest in list_imports(workspace_challenge)]
+        events = app.state.store.events(cid)
+        if not app.state.store.verify(cid).get("valid"):
+            raise HTTPException(
+                409,
+                "Event chain integrity check failed; import manifests are not trusted",
+            )
+        manifests, issues = scan_imports(workspace_challenge, events, cid)
+        records = [manifest.record() for manifest in manifests]
+        events_by_import = {
+            event.payload.get("import_id"): event
+            for event in events
+            if event.event_type == "challenge_imported"
+        }
+        for issue in issues:
+            event = events_by_import.get(issue.import_id)
+            if event is not None:
+                records.append(record_from_event(event, cid, issue.reason))
+            else:
+                records.append(
+                    ImportRecord(
+                        import_id=issue.import_id,
+                        challenge_id=cid,
+                        original_artifact_id="",
+                        original_filename="",
+                        extracted_file_count=0,
+                        total_uncompressed_size=0,
+                        warnings=[],
+                        created_at="",
+                        manifest_sha256="",
+                        manifest_verified=False,
+                        integrity_error=issue.reason,
+                    )
+                )
+        return records
+
+    def verified_import_or_409(cid: str, import_id: str):
+        """Return only a self-verified, event-bound manifest or raise 404/409."""
+        workspace_challenge = app.state.workspace.challenge(cid)
+        if not app.state.store.verify(cid).get("valid"):
+            raise HTTPException(
+                409,
+                "Event chain integrity check failed; import manifests are not trusted",
+            )
+        events = app.state.store.events(cid)
+        try:
+            directory = import_directory(workspace_challenge, import_id)
+        except KeyError:
+            raise HTTPException(404, "Import not found") from None
+        try:
+            manifest = read_manifest(directory)
+            bind_manifest(manifest, events, cid)
+        except ManifestIntegrityError as error:
+            raise HTTPException(409, str(error)) from None
+        return manifest
 
     @app.get(
         "/api/challenges/{cid}/imports/{import_id}",
@@ -566,38 +624,34 @@ def create_app(
     )
     def import_detail(cid: str, import_id: str):
         exists(cid)
-        workspace_challenge = app.state.workspace.challenge(cid)
-        try:
-            directory = import_directory(workspace_challenge, import_id)
-            manifest = read_manifest(directory)
-        except KeyError:
-            raise HTTPException(404, "Import not found") from None
-        except ZipValidationError:
-            raise HTTPException(500, "Stored import manifest is unreadable") from None
-        return manifest.detail()
+        return verified_import_or_409(cid, import_id).detail()
 
     @app.get("/api/challenges/{cid}/imports/{import_id}/files/{relative_path:path}")
     def import_file(cid: str, import_id: str, relative_path: str):
         exists(cid)
         workspace_challenge = app.state.workspace.challenge(cid)
+        manifest = verified_import_or_409(cid, import_id)
         try:
-            directory = import_directory(workspace_challenge, import_id)
-            manifest = read_manifest(directory)
-            target = imported_file_path(workspace_challenge, manifest, relative_path)
+            target, entry = imported_file(workspace_challenge, manifest, relative_path)
         except KeyError:
             raise HTTPException(404, "Imported file not found") from None
-        except ZipValidationError:
-            raise HTTPException(500, "Stored import manifest is unreadable") from None
         try:
             data = target.read_bytes()
         except OSError:
             raise HTTPException(404, "Imported file not found") from None
+        # Re-verify the delivered bytes against the verified manifest; a
+        # modified, truncated or replaced file is never returned to the client.
+        if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.sha256:
+            raise HTTPException(
+                409, "Imported file failed its integrity check"
+            ) from None
         filename = target.name
         return Response(
             content=data,
             media_type=detect_media_type(data[:4096]),
             headers={
                 "X-Content-Type-Options": "nosniff",
+                "X-Imported-File-Integrity": "sha256-verified",
                 "Content-Disposition": _content_disposition(
                     filename, manifest.import_id, disposition="inline"
                 ),
@@ -665,21 +719,37 @@ def create_app(
         challenge = exists(cid)
         preview = build_preview(cid, challenge)
         workspace_challenge = app.state.workspace.challenge(cid)
+        events = app.state.store.events(cid)
+        integrity = app.state.store.verify(cid)
+        manifests, import_issues = scan_imports(workspace_challenge, events, cid)
+        if not integrity.get("valid"):
+            import_issues = [
+                ImportIssue(
+                    import_id=manifest.import_id,
+                    reason=(
+                        "Event chain integrity check failed; manifest binding is "
+                        "not trusted"
+                    ),
+                )
+                for manifest in manifests
+            ] + import_issues
+            manifests = []
         try:
             result = build_export_archive(
                 data_root=root,
                 challenge=challenge,
                 project=app.state.project.get(),
-                events=app.state.store.events(cid),
+                events=events,
                 artifacts=app.state.store.artifact_views(cid),
-                manifests=list_imports(workspace_challenge),
+                manifests=manifests,
+                import_issues=import_issues,
                 artifact_store=app.state.artifacts,
                 workspace_challenge=workspace_challenge,
                 writeup_markdown=preview.markdown,
                 completeness=preview.completeness,
                 missing_requirements=preview.missing_requirements,
                 writeup_warnings=preview.warnings,
-                integrity=app.state.store.verify(cid),
+                integrity=integrity,
             )
         except OSError:
             raise HTTPException(500, "Evidence archive export failed") from None

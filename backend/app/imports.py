@@ -22,7 +22,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from .artifacts import detect_media_type
-from .models import ImportDetail, ImportFile, ImportRecord, now
+from .models import Event, ImportDetail, ImportFile, ImportRecord, now
 
 DEFAULT_MAX_FILES = 2000
 DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -147,8 +147,9 @@ class ImportManifest:
             "manifest_sha256": self.manifest_sha256,
         }
 
-    def canonical_bytes(self) -> bytes:
+    def _canonical_with_digest(self, manifest_sha256: str) -> bytes:
         data = self.payload()
+        data["manifest_sha256"] = manifest_sha256
         data["files"] = [item.model_dump() for item in self.files]
         return json.dumps(
             data,
@@ -156,6 +157,21 @@ class ImportManifest:
             separators=(",", ":"),
             ensure_ascii=False,
         ).encode("utf-8")
+
+    def digest_basis_bytes(self) -> bytes:
+        """Canonical bytes used to compute manifest_sha256.
+
+        The digest itself is represented as an empty string so it can be
+        recomputed from the manifest content.
+        """
+        return self._canonical_with_digest("")
+
+    def computed_sha256(self) -> str:
+        return hashlib.sha256(self.digest_basis_bytes()).hexdigest()
+
+    def canonical_bytes(self) -> bytes:
+        """Canonical manifest file bytes including the stored digest."""
+        return self._canonical_with_digest(self.manifest_sha256)
 
 
 def _normalise_member_name(raw: str) -> str:
@@ -412,7 +428,7 @@ def install_staged_import(
     )
     manifest = replace(
         manifest,
-        manifest_sha256=hashlib.sha256(manifest.canonical_bytes()).hexdigest(),
+        manifest_sha256=manifest.computed_sha256(),
     )
     try:
         (staged.staging / "manifest.json").write_bytes(manifest.canonical_bytes())
@@ -437,8 +453,20 @@ def installed_import_directory(
     return directory if directory.is_dir() else None
 
 
-def _manifest_from_json(path: Path) -> ImportManifest:
-    data = json.loads(path.read_text(encoding="utf-8"))
+class ManifestIntegrityError(ValueError):
+    """Raised when a stored manifest fails its self-check or event binding."""
+
+
+@dataclass(frozen=True)
+class ImportIssue:
+    """A stored import directory whose manifest could not be trusted."""
+
+    import_id: str
+    reason: str
+
+
+def _manifest_from_bytes(raw: bytes) -> ImportManifest:
+    data = json.loads(raw.decode("utf-8"))
     return ImportManifest(
         import_id=data["import_id"],
         challenge_id=data["challenge_id"],
@@ -454,26 +482,110 @@ def _manifest_from_json(path: Path) -> ImportManifest:
 
 
 def read_manifest(import_directory: Path) -> ImportManifest:
+    """Read and self-verify a manifest; never return a silently modified one."""
     try:
-        return _manifest_from_json(import_directory / "manifest.json")
-    except (OSError, ValueError, KeyError):
-        raise ZipValidationError("Stored import manifest is unreadable") from None
+        raw = (import_directory / "manifest.json").read_bytes()
+    except OSError:
+        raise ManifestIntegrityError("Manifest is missing") from None
+    try:
+        manifest = _manifest_from_bytes(raw)
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError):
+        raise ManifestIntegrityError("Manifest is unreadable") from None
+    canonical = manifest.canonical_bytes()
+    if canonical != raw:
+        raise ManifestIntegrityError("Manifest bytes do not match its canonical form")
+    if manifest.computed_sha256() != manifest.manifest_sha256:
+        raise ManifestIntegrityError("Manifest checksum does not match its content")
+    return manifest
 
 
-def list_imports(workspace_challenge: Path) -> list[ImportManifest]:
+def bind_manifest(
+    manifest: ImportManifest, events: list[Event], challenge_id: str
+) -> Event:
+    """Bind a manifest to exactly one challenge_imported event in the hash chain.
+
+    Recomputing the manifest's own checksum is not sufficient: an attacker able
+    to rewrite the file can also rewrite its checksum.  The manifest is trusted
+    only when its digest and fields match the event that was recorded at import
+    time, and that event references the original archive artifact.
+    """
+    if manifest.challenge_id != challenge_id:
+        raise ManifestIntegrityError("Manifest belongs to another challenge")
+    matches = [
+        event
+        for event in events
+        if event.event_type == "challenge_imported"
+        and event.payload.get("import_id") == manifest.import_id
+    ]
+    if len(matches) != 1:
+        raise ManifestIntegrityError(
+            "Manifest is not bound to exactly one challenge_imported event"
+        )
+    event = matches[0]
+    if event.challenge_id != challenge_id:
+        raise ManifestIntegrityError("Import event belongs to another challenge")
+    expected = {
+        "challenge_id": manifest.challenge_id,
+        "original_artifact_id": manifest.original_artifact_id,
+        "original_filename": manifest.original_filename,
+        "extracted_file_count": manifest.extracted_file_count,
+        "total_uncompressed_size": manifest.total_uncompressed_size,
+        "manifest_sha256": manifest.manifest_sha256,
+        "created_at": manifest.created_at,
+    }
+    for field_name, value in expected.items():
+        if event.payload.get(field_name) != value:
+            raise ManifestIntegrityError(
+                f"Manifest field does not match the import event: {field_name}"
+            )
+    if manifest.original_artifact_id not in event.artifact_ids:
+        raise ManifestIntegrityError(
+            "Import event does not reference the original archive artifact"
+        )
+    return event
+
+
+def scan_imports(
+    workspace_challenge: Path, events: list[Event], challenge_id: str
+) -> tuple[list[ImportManifest], list[ImportIssue]]:
+    """Return verified manifests plus explicit issues for untrusted directories."""
     parent = workspace_challenge / "imports"
     if not parent.is_dir():
-        return []
+        return [], []
     manifests: list[ImportManifest] = []
-    for child in parent.iterdir():
+    issues: list[ImportIssue] = []
+    for child in sorted(parent.iterdir()):
         if not child.is_dir() or child.name.startswith("."):
             continue
         try:
-            manifests.append(read_manifest(child))
-        except ZipValidationError:
+            manifest = read_manifest(child)
+            bind_manifest(manifest, events, challenge_id)
+        except ManifestIntegrityError as error:
+            issues.append(ImportIssue(import_id=child.name, reason=str(error)))
             continue
+        manifests.append(manifest)
     manifests.sort(key=lambda item: (item.created_at, item.import_id), reverse=True)
-    return manifests
+    return manifests, issues
+
+
+def record_from_event(
+    event: Event, challenge_id: str, integrity_error: str
+) -> ImportRecord:
+    """Best-effort record for an untrusted manifest, derived from the event."""
+    payload = event.payload
+    return ImportRecord(
+        import_id=str(payload.get("import_id") or event.event_id),
+        challenge_id=challenge_id,
+        original_artifact_id=str(payload.get("original_artifact_id", "")),
+        original_filename=str(payload.get("original_filename", "")),
+        extracted_file_count=int(payload.get("extracted_file_count") or 0),
+        total_uncompressed_size=int(payload.get("total_uncompressed_size") or 0),
+        warnings=[str(item) for item in payload.get("warnings", [])],
+        created_at=str(payload.get("created_at") or event.occurred_at),
+        manifest_sha256=str(payload.get("manifest_sha256", "")),
+        manifest_verified=False,
+        integrity_error=integrity_error,
+    )
 
 
 def import_directory(workspace_challenge: Path, import_id: str) -> Path:
@@ -490,11 +602,15 @@ def import_directory(workspace_challenge: Path, import_id: str) -> Path:
     return directory
 
 
-def imported_file_path(
+def imported_file(
     workspace_challenge: Path, manifest: ImportManifest, relative_path: str
-) -> Path:
-    """Resolve a manifest-listed file; no arbitrary workspace paths are served."""
-    if not any(item.relative_path == relative_path for item in manifest.files):
+) -> tuple[Path, ImportFile]:
+    """Resolve a manifest-listed file and return its manifest entry for checks."""
+    entry = next(
+        (item for item in manifest.files if item.relative_path == relative_path),
+        None,
+    )
+    if entry is None:
         raise KeyError(relative_path)
     root = import_directory(workspace_challenge, manifest.import_id)
     candidate = root.joinpath(*relative_path.split("/"))
@@ -503,4 +619,4 @@ def imported_file_path(
         raise KeyError(relative_path)
     if candidate.is_symlink() or not resolved.is_file():
         raise KeyError(relative_path)
-    return resolved
+    return resolved, entry

@@ -5,6 +5,11 @@ recorded SHA-256 before including it, keeps original bytes unchanged, orders
 events by sequence, records missing evidence in the manifest, and writes a
 SHA256SUMS file covering the delivered files.  An incomplete dossier is still
 exportable but is marked prominently.
+
+Every verified ZIP import is exported separately under
+``challenge/imports/<import_id>/`` with its original archive and extracted
+files.  An import whose manifest or files fail verification is listed in the
+manifest with an explicit issue and makes the whole dossier incomplete.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from .artifacts import (
     ArtifactPathError,
     ArtifactStore,
 )
-from .imports import ImportManifest
+from .imports import ImportIssue, ImportManifest
 from .models import ArtifactView, Challenge, Event, Project, now
 
 _EXPORT_DIR = ".exports"
@@ -78,7 +83,7 @@ def _safe_relative_path(path: str) -> str:
     return "/".join(parts)
 
 
-def _zip_info(name: str) -> "zipfile.ZipInfo":
+def _zip_info(name: str) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = 0o644 << 16
@@ -145,6 +150,7 @@ def build_export_archive(
     events: list[Event],
     artifacts: list[ArtifactView],
     manifests: list[ImportManifest],
+    import_issues: list[ImportIssue],
     artifact_store: ArtifactStore,
     workspace_challenge: Path,
     writeup_markdown: str,
@@ -161,7 +167,9 @@ def build_export_archive(
     added: dict[str, str] = {}
     missing_files: list[str] = []
     warnings = list(writeup_warnings)
-    latest_import = manifests[0] if manifests else None
+    import_statuses: list[dict] = []
+    import_export_error = False
+    manifests = sorted(manifests, key=lambda item: (item.created_at, item.import_id))
 
     def add_bytes(archive, arcname: str, data: bytes) -> None:
         archive.writestr(_zip_info(arcname), data)
@@ -179,51 +187,111 @@ def build_export_archive(
             )
             return None
 
+    def export_import(archive, manifest: ImportManifest) -> dict:
+        nonlocal import_export_error
+        prefix = f"challenge/imports/{manifest.import_id}"
+        status = {
+            "import_id": manifest.import_id,
+            "original_artifact_id": manifest.original_artifact_id,
+            "original_filename": manifest.original_filename,
+            "extracted_file_count": manifest.extracted_file_count,
+            "total_uncompressed_size": manifest.total_uncompressed_size,
+            "created_at": manifest.created_at,
+            "status": "exported",
+            "exported_file_count": 0,
+            "missing_files": [],
+            "error": None,
+        }
+        original = next(
+            (
+                artifact
+                for artifact in artifacts
+                if artifact.artifact_id == manifest.original_artifact_id
+            ),
+            None,
+        )
+        if original is None:
+            status["missing_files"].append(f"{prefix}/original.zip")
+            missing_files.append(f"{prefix}/original.zip")
+            warnings.append(f"导入原始 ZIP 证据缺失：{manifest.import_id}")
+        else:
+            data = read_artifact(original)
+            if data is None:
+                status["missing_files"].append(f"{prefix}/original.zip")
+            else:
+                add_bytes(archive, f"{prefix}/original.zip", data)
+                status["exported_file_count"] += 1
+        import_root = workspace_challenge / "imports" / manifest.import_id
+        for item in manifest.files:
+            try:
+                relative = _safe_relative_path(item.relative_path)
+            except ExportError as error:
+                status["missing_files"].append(item.relative_path)
+                missing_files.append(f"{prefix}/extracted/{item.relative_path}")
+                warnings.append(f"{error}（{manifest.import_id}）")
+                continue
+            source = import_root.joinpath(*relative.split("/"))
+            try:
+                resolved = source.resolve()
+                resolved.relative_to(import_root.resolve())
+                data = resolved.read_bytes()
+            except (OSError, ValueError):
+                status["missing_files"].append(relative)
+                missing_files.append(f"{prefix}/extracted/{relative}")
+                warnings.append(
+                    f"解压文件缺失，未导出：{manifest.import_id}/{relative}"
+                )
+                continue
+            if (
+                len(data) != item.size
+                or hashlib.sha256(data).hexdigest() != item.sha256
+            ):
+                status["missing_files"].append(relative)
+                missing_files.append(f"{prefix}/extracted/{relative}")
+                warnings.append(
+                    f"解压文件大小或哈希不匹配，未导出：{manifest.import_id}/{relative}"
+                )
+                continue
+            add_bytes(archive, f"{prefix}/extracted/{relative}", data)
+            status["exported_file_count"] += 1
+        if status["missing_files"]:
+            status["status"] = "incomplete"
+            import_export_error = True
+        import_statuses.append(status)
+        return status
+
     try:
         with zipfile.ZipFile(
             temp_path, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True
         ) as archive:
-            if latest_import is not None:
-                original = next(
-                    (
-                        artifact
-                        for artifact in artifacts
-                        if artifact.artifact_id == latest_import.original_artifact_id
-                    ),
-                    None,
+            for manifest in manifests:
+                export_import(archive, manifest)
+
+            for issue in import_issues:
+                import_export_error = True
+                import_statuses.append(
+                    {
+                        "import_id": issue.import_id,
+                        "original_artifact_id": None,
+                        "original_filename": None,
+                        "extracted_file_count": 0,
+                        "total_uncompressed_size": 0,
+                        "created_at": None,
+                        "status": "unverified",
+                        "exported_file_count": 0,
+                        "missing_files": [],
+                        "error": issue.reason,
+                    }
                 )
-                if original is not None:
-                    data = read_artifact(original)
-                    if data is not None:
-                        add_bytes(archive, "challenge/original.zip", data)
-                else:
-                    missing_files.append("challenge/original.zip")
-                import_root = workspace_challenge / "imports" / latest_import.import_id
-                for item in latest_import.files:
-                    try:
-                        relative = _safe_relative_path(item.relative_path)
-                    except ExportError as error:
-                        warnings.append(str(error))
-                        missing_files.append(item.relative_path)
-                        continue
-                    source = import_root.joinpath(*relative.split("/"))
-                    try:
-                        resolved = source.resolve()
-                        resolved.relative_to(import_root.resolve())
-                        data = resolved.read_bytes()
-                    except (OSError, ValueError):
-                        missing_files.append(item.relative_path)
-                        warnings.append(f"解压文件缺失，未导出：{item.relative_path}")
-                        continue
-                    if hashlib.sha256(data).hexdigest() != item.sha256:
-                        missing_files.append(item.relative_path)
-                        warnings.append(
-                            f"解压文件哈希不匹配，未导出：{item.relative_path}"
-                        )
-                        continue
-                    add_bytes(archive, f"challenge/extracted/{relative}", data)
-            else:
-                missing_files.append("challenge/original.zip")
+                missing_files.append(
+                    f"challenge/imports/{issue.import_id} (unverified)"
+                )
+                warnings.append(
+                    "导入记录未通过 Manifest/事件校验，未导出："
+                    f"{issue.import_id}（{issue.reason}）"
+                )
+            if not manifests and not import_issues:
+                missing_files.append("challenge/imports")
                 warnings.append("尚未导入题目 ZIP")
 
             used_paths = set(added)
@@ -289,9 +357,11 @@ def build_export_archive(
                 "writeup.md",
                 writeup_markdown.encode("utf-8"),
             )
-            # Missing or tampered artifact bytes make the delivered dossier
-            # incomplete even when the metadata-level preview was complete.
-            export_completeness = "incomplete" if missing_files else completeness
+            # Missing/tampered evidence or an unverified import makes the
+            # delivered dossier incomplete even if metadata-level preview passed.
+            export_completeness = (
+                "incomplete" if (missing_files or import_export_error) else completeness
+            )
             add_bytes(
                 archive,
                 "ai_disclosure.md",
@@ -306,7 +376,7 @@ def build_export_archive(
                 "counts": {
                     "events": len(events),
                     "artifacts": len(artifacts),
-                    "imports": len(manifests),
+                    "imports": len(import_statuses),
                 },
                 "completeness": export_completeness,
                 "missing_requirements": missing_requirements,
@@ -315,17 +385,7 @@ def build_export_archive(
                 "integrity": integrity,
                 "tool_execution_enabled": False,
                 "ai_suggestions_are_not_actions": True,
-                "imports": [
-                    {
-                        "import_id": item.import_id,
-                        "original_artifact_id": item.original_artifact_id,
-                        "extracted_file_count": item.extracted_file_count,
-                        "total_uncompressed_size": item.total_uncompressed_size,
-                        "warnings": item.warnings,
-                        "created_at": item.created_at,
-                    }
-                    for item in manifests
-                ],
+                "imports": import_statuses,
                 "artifacts": [
                     {
                         "artifact_id": artifact.artifact_id,
@@ -355,7 +415,11 @@ def build_export_archive(
                 ]
                 if missing_files:
                     incomplete_lines.extend(
-                        ["", "缺失文件：", *[f"- {item}" for item in missing_files]]
+                        [
+                            "",
+                            "缺失文件/未验证导入：",
+                            *[f"- {item}" for item in missing_files],
+                        ]
                     )
                 incomplete_lines.append("")
                 add_bytes(

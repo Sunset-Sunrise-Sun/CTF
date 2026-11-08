@@ -54,8 +54,10 @@ _MAX_CODE_BYTES_PER_FILE = 20 * 1024
 _MAX_CODE_BYTES_TOTAL = 150 * 1024
 
 _REQUIRED_EVIDENCE = (
-    ("core_approach", "人工填写的解题思路"),
+    ("core_approach", "人工填写的核心解题思路"),
     ("manual_operation", "人工运行记录"),
+    ("core_code", "核心代码/脚本证据"),
+    ("execution_evidence", "运行截图或执行输出证据"),
     ("flag_capture", "Flag 获取截图"),
     ("platform_verification", "平台验证截图"),
     ("ai_usage_level", "AI 使用等级确认"),
@@ -104,6 +106,12 @@ def build_writeup_preview(
     integrity: dict,
 ) -> WriteupPreview:
     notes = [event for event in events if event.event_type == "note"]
+    approach_notes = [
+        event for event in notes if event.payload.get("kind") == "approach"
+    ]
+    ordinary_notes = [
+        event for event in notes if event.payload.get("kind") != "approach"
+    ]
     manual_ops = [
         event for event in events if event.event_type == "manual_operation_recorded"
     ]
@@ -112,12 +120,26 @@ def build_writeup_preview(
     for artifact in artifacts:
         by_kind.setdefault(_kind(artifact), []).append(artifact)
 
+    code_artifacts = [
+        artifact
+        for artifact in artifacts
+        if _kind(artifact) in {"source_code", "analysis"}
+        and _is_text_artifact(artifact)
+    ]
+    execution_artifacts = by_kind.get("execution", []) + by_kind.get(
+        "execution_output", []
+    )
+
     complete_integrity = bool(integrity.get("valid"))
     missing: list[str] = []
-    if not notes:
+    if not approach_notes:
         missing.append("core_approach")
     if not manual_ops:
         missing.append("manual_operation")
+    if not code_artifacts:
+        missing.append("core_code")
+    if not execution_artifacts:
+        missing.append("execution_evidence")
     if not by_kind.get("flag_capture"):
         missing.append("flag_capture")
     if not by_kind.get("platform_verification"):
@@ -148,6 +170,17 @@ def build_writeup_preview(
         for event in imports
         for warning in event.payload.get("warnings", [])
     )
+
+    # Read the candidate code evidence once so an unreadable artifact is also
+    # reported as missing core code rather than only rendered as a gap marker.
+    code_contents: dict[str, bytes] = {}
+    for artifact in code_artifacts:
+        try:
+            code_contents[artifact.artifact_id] = artifact_reader(artifact.sha256)
+        except Exception:
+            continue
+    if not code_contents and "core_code" not in missing:
+        missing.append("core_code")
 
     lines: list[str] = []
     lines.append(f"# {challenge.name} — Writeup 初稿")
@@ -193,8 +226,8 @@ def build_writeup_preview(
 
     lines.append("## 2. 解题思路")
     lines.append("")
-    if notes:
-        for event in notes:
+    if approach_notes:
+        for event in approach_notes:
             retrospective = "（回溯笔记）" if event.payload.get("retrospective") else ""
             lines.append(
                 f"- {event.payload.get('text', '')} "
@@ -202,6 +235,11 @@ def build_writeup_preview(
             )
     else:
         lines.append(MISSING_APPROACH)
+        if ordinary_notes:
+            lines.append("")
+            lines.append(
+                "> 已记录的普通笔记不会自动认定为「核心解题思路」；请明确标记并补充解题思路。"
+            )
     lines.append("")
 
     lines.append("## 3. 关键操作")
@@ -212,6 +250,16 @@ def build_writeup_preview(
         "不是工作台自动执行或已验证执行。"
     )
     lines.append("")
+    if ordinary_notes:
+        lines.append("### 其他人工笔记（普通笔记，非核心解题思路）")
+        lines.append("")
+        for event in ordinary_notes:
+            retrospective = "（回溯笔记）" if event.payload.get("retrospective") else ""
+            lines.append(
+                f"- {event.payload.get('text', '')} "
+                f"[事件 {event.event_id} / #{event.sequence} / {event.occurred_at}]{retrospective}"
+            )
+        lines.append("")
     if manual_ops:
         for event in manual_ops:
             payload = event.payload
@@ -249,25 +297,14 @@ def build_writeup_preview(
 
     lines.append("## 4. 核心代码")
     lines.append("")
-    code_artifacts = [
-        artifact
-        for artifact in artifacts
-        if _kind(artifact) in {"source_code", "analysis"}
-        and _is_text_artifact(artifact)
-    ]
-    if not code_artifacts:
-        code_artifacts = [
-            artifact for artifact in artifacts if _is_text_artifact(artifact)
-        ][:3]
     rendered = 0
     total_bytes = 0
     for artifact in code_artifacts:
         if rendered >= _MAX_CODE_FILES or total_bytes >= _MAX_CODE_BYTES_TOTAL:
             lines.append("（核心代码数量超过初稿展示上限，完整文件见导出证据档案。）")
             break
-        try:
-            content = artifact_reader(artifact.sha256)
-        except Exception:
+        content = code_contents.get(artifact.artifact_id)
+        if content is None:
             lines.append(
                 f"- {artifact.original_filename}：无法读取（证据完整性校验失败）"
             )
@@ -290,23 +327,23 @@ def build_writeup_preview(
 
     lines.append("## 5. 运行结果")
     lines.append("")
-    result_artifacts = by_kind.get("execution", []) + by_kind.get(
-        "execution_output", []
-    )
-    if manual_ops or result_artifacts:
+    if manual_ops:
         for event in manual_ops:
             payload = event.payload
             lines.append(
                 f"- 人工运行 #{event.sequence}：退出码 {payload.get('exit_code', '未填写')}；"
                 f"{payload.get('result_note', '')}"
             )
-        for artifact in result_artifacts:
-            lines.append(
-                f"- 执行证据：{artifact.original_filename}"
-                f"（{artifact.evidence_kind}，SHA256 {artifact.sha256}，"
-                f"事件 {artifact.source_event_id}）"
-            )
-    else:
+    for artifact in execution_artifacts:
+        lines.append(
+            f"- 执行证据：{artifact.original_filename}"
+            f"（{artifact.evidence_kind}，SHA256 {artifact.sha256}，"
+            f"事件 {artifact.source_event_id}）"
+        )
+    if not manual_ops and not execution_artifacts:
+        lines.append(MISSING_EXECUTION_EVIDENCE)
+    elif not execution_artifacts:
+        lines.append("")
         lines.append(MISSING_EXECUTION_EVIDENCE)
     lines.append("")
 
