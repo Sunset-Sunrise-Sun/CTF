@@ -9,9 +9,11 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from pydantic import Field
-from .models import Model
 from pathlib import Path
+
+from pydantic import Field
+
+from .models import Model
 
 from .models import Challenge, Project
 from .providers import (
@@ -24,7 +26,6 @@ from .providers import (
 )
 from .store import Store
 from .imports import (
-    ManifestIntegrityError,
     bind_manifest,
     imported_file,
     scan_imports,
