@@ -15,6 +15,7 @@
 | `backend/app/schema_cli.py` | 110 | 导出 `docs/openapi.json` 与 `docs/contracts.json` 的可复现命令（`python -m app.schema_cli`）。 |
 | `backend/tests/test_mvp_imports.py` | 1076 | 42 个测试函数 / 50 个用例：项目规则、Challenge 扩展兼容、ZIP 导入与 12 类安全用例、证据分类、人工操作、health/限制/重启。 |
 | `backend/tests/test_mvp_writeup_export.py` | 756 | 21 个测试函数 / 24 个用例：Writeup 预览、缺失标记、AI 披露、导出结构与 SHA256SUMS、字节一致性、不完整/篡改/只读、端到端流程。 |
+| `backend/tests/test_mvp_review_fixes.py` | 新增 | 24 个测试函数 / 27 个用例：PR #7 独立审查修复回归（文件读取完整性、Manifest/事件绑定、全部导入导出、Writeup approach/code/execution 完整性）。 |
 | `docs/MVP_BACKEND.md` | 151 | 后端 API 契约、数据布局、安全预算、演示步骤、已知限制。 |
 | `docs/MVP_BACKEND_FILES.md` | — | 本文件。 |
 | `docs/MVP_BACKEND_TEST_REPORT.md` | — | 测试、Ruff、CI 结果与 B9 覆盖映射。 |
@@ -38,6 +39,21 @@
 - `backend/app/migrations/`：无新增迁移，未占用 P1-2 预留迁移编号；项目配置与证据分类不依赖数据库结构变更。
 - `backend/app/artifacts.py`、`workspace.py`、`providers.py`、`tools.py`：未改（复用既有 ArtifactStore/Workspace/Store 事件链，没有第二套事件存储）。
 - PR #6 分支与其历史、`main` 分支。
+
+## PR #7 独立审查修复追加变更（2026-11-08）
+
+| 文件 | 变更 |
+|---|---|
+| `backend/app/imports.py` | `read_manifest` 校验 canonical 字节与 `manifest_sha256`；新增 `bind_manifest` 与 `scan_imports`，将 Manifest 与 `challenge_imported` 事件逐字段绑定（含 original_artifact_id、事件 artifact_ids）；`imported_file` 返回 Manifest 条目供读取时复核；不再静默跳过不可信 Manifest。 |
+| `backend/app/main.py` | imports 列表显式返回 `manifest_verified`/`integrity_error` 不可信项；详情/文件路径在事件链无效、Manifest 校验或绑定失败时 409；文件读取复核 size+SHA256（409 且不返回篡改内容），新增 `X-Imported-File-Integrity`；导出把全部已验证导入与未验证问题传入导出器。 |
+| `backend/app/export.py` | 按 `import_id` 导出每一次导入的 `challenge/imports/<id>/original.zip` 与 `extracted/...`；逐文件复核 size+SHA256；`manifest.json.imports` 记录每项 `status/exported_file_count/missing_files/error`；任一项缺失/篡改/未验证 → 整体 incomplete。 |
+| `backend/app/models.py` | `NoteCreate.kind`（note/approach，默认 note，历史笔记默认普通笔记）；`ImportRecord.manifest_verified`、`integrity_error` 增量字段。 |
+| `backend/app/writeup.py` | 仅 `kind="approach"` 笔记满足 core_approach，普通笔记只作为「其他人工笔记」；新增 `core_code`（需 source_code/analysis 文本证据）与 `execution_evidence`（需 execution/execution_output 证据）缺失项与中文标记；不伪造内容。 |
+| `backend/tests/test_mvp_imports.py` | 导入记录字段集合加入增量验证字段。 |
+| `backend/tests/test_mvp_writeup_export.py` | 适配每导入目录的导出结构、approach 笔记、新增 missing codes。 |
+| `backend/tests/test_mvp_review_fixes.py` | 新增 P1-1/P1-2/P1-3/P2-1 全量回归测试。 |
+| `docs/MVP_BACKEND.md` | 更新 Manifest 校验、文件读取 409、逐导入导出、Writeup approach/code/execution 语义与标记。 |
+| `docs/openapi.json` / `docs/contracts.json` | 由 `python -m app.schema_cli` 重新生成（NoteCreate.kind、ImportRecord 验证字段）。 |
 
 ## 复现命令
 

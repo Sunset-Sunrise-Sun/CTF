@@ -424,6 +424,15 @@
         ],
         "default": null,
         "title": "Correction Of"
+      },
+      "kind": {
+        "default": "note",
+        "enum": [
+          "note",
+          "approach"
+        ],
+        "title": "Kind",
+        "type": "string"
       }
     },
     "required": [
@@ -1757,6 +1766,23 @@
       "manifest_sha256": {
         "title": "Manifest Sha256",
         "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
       }
     },
     "required": [
@@ -1849,6 +1875,23 @@
       "manifest_sha256": {
         "title": "Manifest Sha256",
         "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
       },
       "files": {
         "items": {
@@ -2041,6 +2084,23 @@
       "manifest_sha256": {
         "title": "Manifest Sha256",
         "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
       },
       "files": {
         "items": {

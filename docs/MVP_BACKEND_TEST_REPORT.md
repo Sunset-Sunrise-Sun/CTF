@@ -7,9 +7,10 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 | 检查 | 命令 | 结果 |
 |---|---|---|
-| 全仓测试 | `cd backend; python -m pytest -q` | **149 passed, 3 skipped, 0 failed**（18.68s） |
-| MVP 导入/证据/人工操作 | `python -m pytest -q tests/test_mvp_imports.py` | **50 passed, 0 failed**（5.33s） |
-| MVP Writeup/导出 | `python -m pytest -q tests/test_mvp_writeup_export.py` | **24 passed, 0 failed**（7.43s） |
+| 全仓测试 | `cd backend; python -m pytest -q` | **176 passed, 3 skipped, 0 failed**（26.90s） |
+| MVP 导入/证据/人工操作 | `python -m pytest -q tests/test_mvp_imports.py` | **50 passed, 0 failed** |
+| MVP Writeup/导出 | `python -m pytest -q tests/test_mvp_writeup_export.py` | **24 passed, 0 failed** |
+| PR #7 审查修复回归 | `python -m pytest -q tests/test_mvp_review_fixes.py` | **27 passed, 0 failed**（5.38s） |
 | 既有 P1 回归 | `python -m pytest -q tests/test_artifacts.py tests/test_core.py` | 通过（仅平台性 skip） |
 | Ruff lint | `python -m ruff check app tests` | **All checks passed** |
 | Ruff format | `python -m ruff format --check app tests` | **all formatted** |
@@ -19,6 +20,15 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 1. `test_artifacts.py::test_symbolic_link_escape_rejected`：Windows 无创建符号链接权限（POSIX CI 会真实执行；Windows 另有 junction 用例覆盖）。
 2. `test_core.py` 符号链接用例：同上，Windows 权限限制。
 3. `test_providers.py`：真实 Provider 联网测试需显式 opt-in 与合法凭证（按设计禁用）。
+
+## PR #7 独立审查修复回归（test_mvp_review_fixes.py，24 函数 / 27 用例）
+
+| 修复项 | 回归覆盖 |
+|---|---|
+| P1-1 导入文件读取完整性 | 正常读取 200 + `X-Imported-File-Integrity: sha256-verified`；同大小篡改 / 截断 / 替换为更大文件 → 409 且不返回篡改字节；未篡改兄弟文件仍 200；Manifest 不可信时拒绝返回内容 |
+| P1-2 Manifest 与事件绑定 | 正常 `manifest_verified=true`；自身摘要被改、重算摘要自洽但事件摘要不符、删除 manifest、challenge_id/original_artifact_id/import_id 与事件不符、事件链被篡改 → 列表显式 unverified / detail+file 409 / 导出该导入 unverified 且不导出文件、整体 incomplete |
+| P1-3 导出全部导入 | 两个 ZIP 连续导入：两份 original.zip + extracted 全部导出；逐文件 sha256/字节校验；`counts.imports=2` 与逐项 status/exported_file_count/missing_files/error；SHA256SUMS 全覆盖；篡改/缺失任一次导入文件 → 该项 incomplete、另一项 exported、整体 incomplete |
+| P2-1 Writeup 完整性 | 普通笔记（缺省/note）不满足 core_approach，仅在「其他人工笔记」展示；显式 `kind="approach"` 才满足；无 source_code/analysis → core_code 缺失并显示中文标记；仅有补录记录不满足 execution_evidence；真实 execution 证据满足；完整组合 complete；不伪造 Flag/自动执行声明 |
 
 ## B9 必需测试覆盖映射
 
@@ -41,7 +51,7 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 | Writeup 缺失项准确显示 | test_mvp_writeup_export.py::test_writeup_preview_empty_challenge_marks_all_missing / ::test_writeup_preview_reports_precise_missing_requirements |
 | ZIP 导出内容与原始 Artifact 哈希一致 | ::test_export_bytes_match_uploaded_synthetic_evidence |
 | SHA256SUMS 校验成功 | ::test_export_sha256sums_verifies_every_delivered_file |
-| 其他（安全预算/项目规则/只读导出/重启/端到端） | 见两个 MVP 测试文件的函数清单 |
+| 其他（安全预算/项目规则/只读导出/重启/端到端/审查修复回归） | 见三个 MVP 测试文件的函数清单 |
 
 ## 覆盖要点（非穷尽）
 
@@ -59,14 +69,9 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 PR：**#7**（Draft）https://github.com/Sunset-Sunrise-Sun/CTF/pull/7 ，目标分支 `feat/p1-2-a00-integration`。
 
-提交 `67f236ba`（实现 + 测试 + 文档）触发的两次 `P0 checks` 均通过：
+提交 `67f236ba`（初版实现 + 测试 + 文档）的两次 `P0 checks` 已通过（push 42395561864 / pull_request 42395585590，backend 与 frontend 均 success）。
 
-| 运行 | 事件 | 结果 | 链接 |
-|---|---|---|---|
-| 42395561864 | push | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42395561864 |
-| 42395585590 | pull_request | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42395585590 |
-
-本报告所在文档提交会再次触发同一 workflow，PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
+PR #7 独立审查修复提交的最终 head 运行结果待本次推送后回填（同一 workflow；验收时以 PR Checks 页面最新运行结果为准）。
 
 ## 复现
 

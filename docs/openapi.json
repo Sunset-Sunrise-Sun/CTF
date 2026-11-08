@@ -1390,6 +1390,22 @@
             "type": "string",
             "title": "Manifest Sha256"
           },
+          "manifest_verified": {
+            "type": "boolean",
+            "title": "Manifest Verified",
+            "default": true
+          },
+          "integrity_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integrity Error"
+          },
           "files": {
             "items": {
               "$ref": "#/components/schemas/ImportFile"
@@ -1486,6 +1502,22 @@
           "manifest_sha256": {
             "type": "string",
             "title": "Manifest Sha256"
+          },
+          "manifest_verified": {
+            "type": "boolean",
+            "title": "Manifest Verified",
+            "default": true
+          },
+          "integrity_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integrity Error"
           }
         },
         "additionalProperties": false,
@@ -1544,6 +1576,22 @@
           "manifest_sha256": {
             "type": "string",
             "title": "Manifest Sha256"
+          },
+          "manifest_verified": {
+            "type": "boolean",
+            "title": "Manifest Verified",
+            "default": true
+          },
+          "integrity_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integrity Error"
           },
           "files": {
             "items": {
@@ -1671,6 +1719,15 @@
               }
             ],
             "title": "Correction Of"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "note",
+              "approach"
+            ],
+            "title": "Kind",
+            "default": "note"
           }
         },
         "additionalProperties": false,
