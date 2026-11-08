@@ -71,7 +71,14 @@ PR：**#7**（Draft）https://github.com/Sunset-Sunrise-Sun/CTF/pull/7 ，目标
 
 提交 `67f236ba`（初版实现 + 测试 + 文档）的两次 `P0 checks` 已通过（push 42395561864 / pull_request 42395585590，backend 与 frontend 均 success）。
 
-PR #7 独立审查修复提交的最终 head 运行结果待本次推送后回填（同一 workflow；验收时以 PR Checks 页面最新运行结果为准）。
+PR #7 独立审查修复提交 `5f343697` 的两次 `P0 checks` 均通过：
+
+| 运行 | 事件 | 结果 | 链接 |
+|---|---|---|---|
+| 42434884841 | push | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42434884841 |
+| 42434891222 | pull_request | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42434891222 |
+
+本报告所在文档提交会再次触发同一 workflow，PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
 
 ## 复现
 
