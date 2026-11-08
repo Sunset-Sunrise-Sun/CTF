@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.ai_assistant import _redact
+from app.ai_assistant import redact_sensitive
 
 
 def test_ai_chat_requires_explicit_consent_and_server_opt_in(tmp_path, monkeypatch):
@@ -52,7 +52,9 @@ def test_ai_chat_records_only_unverified_suggestion(tmp_path, monkeypatch):
         result = response.json()
         assert result["verification_status"] == "unverified_suggestion"
         assert result["included_files"] == ["app.py"]
-        assert client.get("/api/challenges/" + cid + "/events").json()[-1]["event_type"] == "agent_message"
+        event = client.get("/api/challenges/" + cid + "/events").json()[-1]
+        assert event["event_type"] == "agent_message"
+        assert event["payload"]["question"] == "Explain the synthetic challenge"
 
 
 def test_ai_chat_blocks_unknown_and_a0(tmp_path, monkeypatch):
@@ -72,7 +74,7 @@ def test_ai_chat_blocks_unknown_and_a0(tmp_path, monkeypatch):
 
 def test_secret_redaction_covers_prompts_and_context():
     value = "api_key=sk-synthetic-secret Bearer abcdefghijklmnop password: synthetic-pass"
-    redacted = _redact(value)
+    redacted = redact_sensitive(value)
     assert "sk-synthetic-secret" not in redacted
     assert "abcdefghijklmnop" not in redacted
     assert "synthetic-pass" not in redacted
