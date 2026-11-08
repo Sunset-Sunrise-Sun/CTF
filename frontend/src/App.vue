@@ -859,7 +859,8 @@ docker run --rm --network none ctf-local</pre
               <p>{{ turn.payload.question }}</p>
               <strong>AI：</strong>
               <pre>{{ turn.payload.answer }}</pre>
-              <small>关联事件 #{{ turn.sequence }} · 未执行</small>
+              <small>本轮附加读取文件：{{ turn.payload.included_files?.length ? turn.payload.included_files.join("、") : "无（仅使用题目描述、规则摘要和近期记录）" }}</small>
+              <small>关联事件 #{{ turn.sequence }} · 未执行 · 未验证建议</small>
             </article>
             <p class="muted">请自行检查建议，手动执行后再将真实结果和证据补录到工作台。</p>
           </section>
