@@ -24,7 +24,7 @@ test("AI assistant stays safely disabled until server opt-in and per-request con
 
   const modelCalls: string[] = [];
   page.on("request", (r) => {
-    if (/\\/api\\/challenges\\/[^/]+\\/ai\\/chat/.test(r.url())) {
+    if (r.url().includes("/api/challenges/") && r.url().includes("/ai/chat")) {
       modelCalls.push(r.method() + " " + r.url());
     }
   });
