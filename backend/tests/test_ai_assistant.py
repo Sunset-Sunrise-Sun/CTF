@@ -119,6 +119,17 @@ def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
             files={"file": ("notes.txt", raw, "text/plain")},
         )
         assert uploaded.status_code == 201
+        binary = bytearray(20)
+        binary[:4] = bytes.fromhex("7f454c46")
+        binary[4] = 2
+        binary[5] = 1
+        binary[18:20] = (62).to_bytes(2, "little")
+        binary.extend(b" SYNTHETIC_STANDALONE_BINARY ")
+        binary_upload = client.post(
+            f"/api/challenges/{cid}/artifacts",
+            files={"file": ("sample.elf", bytes(binary), "application/octet-stream")},
+        )
+        assert binary_upload.status_code == 201
         state = client.app.state
         context, included = collect_challenge_context(
             challenge=Challenge.model_validate(challenge),
@@ -128,7 +139,9 @@ def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
             artifact_store=state.artifacts,
         )
         assert "hello from evidence" in context
-        assert included == ["evidence/notes.txt"]
+        assert "evidence/notes.txt" in included
+        assert "evidence/sample.elf [static strings]" in included
+        assert "SYNTHETIC_STANDALONE_BINARY" in context
 
 
 def test_static_binary_summary_extracts_metadata_without_execution():
