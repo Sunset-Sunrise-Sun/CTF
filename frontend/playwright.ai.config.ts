@@ -16,10 +16,10 @@ export default defineConfig({
       command: "python -m uvicorn app.main:app --host 127.0.0.1 --port 18002",
       cwd: "../backend",
       url: "http://127.0.0.1:18002/api/health",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120000,
       env: {
-        CTF_DATA_DIR: "../.playwright-ai-data",
+        CTF_DATA_DIR: `../.playwright-ai-data-${process.pid}`,
         CTF_MODEL_NETWORK_ENABLED: "false",
       },
     },
