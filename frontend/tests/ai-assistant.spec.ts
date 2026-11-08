@@ -5,7 +5,7 @@ test("AI assistant stays safely disabled until server opt-in and per-request con
   request,
 }) => {
   const name = "Synthetic AI gate " + Date.now();
-  const created = await request.post("http://127.0.0.1:8000/api/challenges", {
+  const created = await request.post("http://127.0.0.1:18002/api/challenges", {
     data: {
       name,
       category: "Web",
@@ -16,7 +16,7 @@ test("AI assistant stays safely disabled until server opt-in and per-request con
   expect(created.status()).toBe(201);
   const challenge = await created.json();
 
-  const status = await request.get("http://127.0.0.1:8000/api/model/status");
+  const status = await request.get("http://127.0.0.1:18002/api/model/status");
   expect(status.ok()).toBeTruthy();
   const modelStatus = await status.json();
   expect(modelStatus.network_enabled).toBe(false);
@@ -41,7 +41,7 @@ test("AI assistant stays safely disabled until server opt-in and per-request con
   expect(modelCalls).toEqual([]);
 
   const rejected = await request.post(
-    `http://127.0.0.1:8000/api/challenges/${challenge.challenge_id}/ai/chat`,
+    `http://127.0.0.1:18002/api/challenges/${challenge.challenge_id}/ai/chat`,
     {
       data: {
         question: "Synthetic gate test",
