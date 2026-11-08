@@ -6,7 +6,7 @@
 
 - 通过 `POST /api/challenges/{cid}/ai/chat` 对当前题目进行多轮分析，并按 Crypto / Web / Pwn / Reverse / Misc 提供分类分析框架。
 - 上下文包括题目描述、比赛 AI 政策摘要、最近 20 条事件，以及最多 12 个经过清单/事件绑定和 SHA-256 校验的文本导入文件或独立上传的文本证据。
-- 仅读取白名单文本扩展名；单文件最多 32 KiB，总上下文最多约 180 KiB。二进制文件不发送。
+- 仅读取白名单文本扩展名；单文本文件最多 32 KiB。对不超过 2 MiB 的 ELF/PE 等指定二进制，仅提取文件头元数据和最多 100 条可打印 ASCII 字符串，不发送二进制原文、不执行文件。总上下文最多约 180 KiB。
 - 对上下文和用户问题执行常见 API Key、password、Bearer Token 格式脱敏。
 - 每次请求必须由用户勾选数据外发确认；服务器还必须显式设置联网开关。
 - 每次模型调用记录 `model_call` 状态事件；成功回答记录 `agent_message`，标记 `unverified_suggestion`。
