@@ -7,10 +7,11 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 | 检查 | 命令 | 结果 |
 |---|---|---|
-| 全仓测试 | `cd backend; python -m pytest -q` | **176 passed, 3 skipped, 0 failed**（26.90s） |
+| 全仓测试 | `cd backend; python -m pytest -q` | **199 passed, 3 skipped, 0 failed**（24.30s） |
+| 人工稿持久化 + 最终 ZIP | `python -m pytest -q tests/test_mvp_writeup_persistence.py` | **23 passed, 0 failed** |
 | MVP 导入/证据/人工操作 | `python -m pytest -q tests/test_mvp_imports.py` | **50 passed, 0 failed** |
 | MVP Writeup/导出 | `python -m pytest -q tests/test_mvp_writeup_export.py` | **24 passed, 0 failed** |
-| PR #7 审查修复回归 | `python -m pytest -q tests/test_mvp_review_fixes.py` | **27 passed, 0 failed**（5.38s） |
+| PR #7 审查修复回归 | `python -m pytest -q tests/test_mvp_review_fixes.py` | **27 passed, 0 failed** |
 | 既有 P1 回归 | `python -m pytest -q tests/test_artifacts.py tests/test_core.py` | 通过（仅平台性 skip） |
 | Ruff lint | `python -m ruff check app tests` | **All checks passed** |
 | Ruff format | `python -m ruff format --check app tests` | **all formatted** |
@@ -29,6 +30,21 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 | P1-2 Manifest 与事件绑定 | 正常 `manifest_verified=true`；自身摘要被改、重算摘要自洽但事件摘要不符、删除 manifest、challenge_id/original_artifact_id/import_id 与事件不符、事件链被篡改 → 列表显式 unverified / detail+file 409 / 导出该导入 unverified 且不导出文件、整体 incomplete |
 | P1-3 导出全部导入 | 两个 ZIP 连续导入：两份 original.zip + extracted 全部导出；逐文件 sha256/字节校验；`counts.imports=2` 与逐项 status/exported_file_count/missing_files/error；SHA256SUMS 全覆盖；篡改/缺失任一次导入文件 → 该项 incomplete、另一项 exported、整体 incomplete |
 | P2-1 Writeup 完整性 | 普通笔记（缺省/note）不满足 core_approach，仅在「其他人工笔记」展示；显式 `kind="approach"` 才满足；无 source_code/analysis → core_code 缺失并显示中文标记；仅有补录记录不满足 execution_evidence；真实 execution 证据满足；完整组合 complete；不伪造 Flag/自动执行声明 |
+
+## 人工稿持久化与最终 ZIP（test_mvp_writeup_persistence.py，23 函数）
+
+| 范围 | 覆盖 |
+|---|---|
+| 创建/读取 | PUT base=0 → 201 v1；GET 内容/版本/SHA/size/saved_at 一致；sidecar 结构；无 `.tmp` 残留 |
+| 持久化/版本 | 新 app 同 data_root 恢复；v1→v2 更新；仅保留最新版本 |
+| 并发 | 同 base 并发创建恰好一个 201、一个 409；失败请求不破坏 sidecar |
+| 冲突 | 旧 base 覆盖 → 409 + current 最新稿；无稿时 base>0 → 409 current=null |
+| 校验 | 空/空白 422；64B 边界接受、65B/UTF-8 多字节超限 413；默认 1 MiB 与边界；base_version 严格类型/额外字段 422 |
+| 篡改 | sidecar content 或 JSON 被改 → GET 409 且不回传内容；导出 fallback 初稿、incomplete、无篡改内容 |
+| 最终 ZIP | writeup.md 逐字节人工稿；writeup_generated.md == preview；manifest final_source/version/sha/size 正确；无人工稿初稿提示；SHA256SUMS 全量覆盖并逐文件复算 |
+| 兼容/安全 | 历史无稿 GET 404 + 导出 fallback；保存不产生事件、事件链不变；Content-Length 预检 413、chunked 超限 413；未知 cid 404 |
+
+真实 HTTP 验收（独立 uvicorn + 30 条请求）：创建/更新/恢复/冲突/空稿/超长/严格类型/最终 ZIP/tamper fallback 全部通过，详见 `docs/MVP_WRITEUP_ACCEPTANCE.md`。
 
 ## B9 必需测试覆盖映射
 
@@ -51,7 +67,7 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 | Writeup 缺失项准确显示 | test_mvp_writeup_export.py::test_writeup_preview_empty_challenge_marks_all_missing / ::test_writeup_preview_reports_precise_missing_requirements |
 | ZIP 导出内容与原始 Artifact 哈希一致 | ::test_export_bytes_match_uploaded_synthetic_evidence |
 | SHA256SUMS 校验成功 | ::test_export_sha256sums_verifies_every_delivered_file |
-| 其他（安全预算/项目规则/只读导出/重启/端到端/审查修复回归） | 见三个 MVP 测试文件的函数清单 |
+| 其他（安全预算/项目规则/只读导出/重启/端到端/审查修复回归/人工稿持久化） | 见四个 MVP 测试文件的函数清单 |
 
 ## 覆盖要点（非穷尽）
 
@@ -69,16 +85,7 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 PR：**#7**（Draft）https://github.com/Sunset-Sunrise-Sun/CTF/pull/7 ，目标分支 `feat/p1-2-a00-integration`。
 
-提交 `67f236ba`（初版实现 + 测试 + 文档）的两次 `P0 checks` 已通过（push 42395561864 / pull_request 42395585590，backend 与 frontend 均 success）。
-
-PR #7 独立审查修复提交 `5f343697` 的两次 `P0 checks` 均通过：
-
-| 运行 | 事件 | 结果 | 链接 |
-|---|---|---|---|
-| 42434884841 | push | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42434884841 |
-| 42434891222 | pull_request | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42434891222 |
-
-本报告所在文档提交会再次触发同一 workflow，PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
+提交 `67f236ba`（初版）、`5f343697`（审查修复）的 `P0 checks` 均已通过。本轮「人工稿持久化 + 最终 ZIP」提交的两次 `P0 checks` 运行结果待推送后回填；PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
 
 ## 复现
 

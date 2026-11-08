@@ -15,6 +15,7 @@
 - 证据上传分类：`evidence_kind`、`capture_time_claim`（用户申报时间，与 `ingested_at` 服务器时间严格区分）；证据列表返回分类与来源事件。
 - 人工运行补录：`manual_operation_recorded` 事件，固定 `actor=user`、`execution_mode=manual_external`、`execution_verified=false`。
 - Writeup 初稿：仅基于 Challenge/事件/Artifact/人工笔记/规则/AI 等级生成，缺失证据显示固定标记。
+- **人工稿持久化**：每个 Challenge 可保存/读取人工编辑的 Markdown（版本号、SHA-256、服务器时间、1 MiB 上限、乐观并发冲突保护）；人工稿不是事件，不伪装成执行事实。
 - 完整证据 ZIP：原始 ZIP、解压文件、脚本、分类证据、事件与时间线日志、Writeup、AI 披露、manifest、SHA256SUMS；不完整档案显著标记。
 - 后端测试、Ruff、OpenAPI/契约文档。
 
@@ -37,6 +38,7 @@
       manifest.json              # 文件清单（relative_path/size/sha256/media_type）+ 统计
       <解压文件...>
     .import-staging-<uuid>/      # 仅解压期间存在，成功后原子 rename；失败清理
+  writeups/<challenge_id>.json    # 人工编辑 Writeup 的最新版本（原子写；无 DB 迁移）
   .exports/                      # 导出临时 ZIP，响应后台删除
 ```
 
@@ -54,6 +56,7 @@
 | `CTF_IMPORT_MAX_FILE_BYTES` | 50 MiB | 单文件解压上限 |
 | `CTF_IMPORT_MAX_TOTAL_BYTES` | 200 MiB | 总解压上限 |
 | `CTF_IMPORT_MAX_COMPRESSION_RATIO` | 200 | 压缩比上限（单文件与总体） |
+| `CTF_MAX_WRITEUP_BYTES` | 1 MiB | 人工编辑 Writeup 的 UTF-8 内容上限 |
 
 `create_app(data_root, max_artifact_bytes, rules_max_bytes, import_limits)` 支持测试注入；`ImportLimits` 见 `app/imports.py`。
 
@@ -193,7 +196,8 @@ scripts/<source_code>           # source_code 证据
 evidence/analysis|execution|flag_capture|platform_verification|other/<files>
 logs/events.json                # 全量事件（按 sequence 排序）
 logs/timeline.json              # 时间线摘要
-writeup.md                      # 与 preview markdown 一致
+writeup.md                      # 最终稿：人工稿（存在且校验通过）或初稿 + 注明
+writeup_generated.md            # 服务器生成的初稿（始终存在）
 ai_disclosure.md                # AI 使用披露
 manifest.json                   # 元数据、统计、缺失项、缺失文件、警告、完整性、逐导入导出状态
 SHA256SUMS                      # 覆盖除自身外所有交付文件的 sha256（"<hex>  <path>"）
@@ -202,9 +206,41 @@ INCOMPLETE.txt                  # 不完整时存在，显著标记
 
 - **每次导入都独立导出**：以 `import_id` 分目录，原始 ZIP 与解压文件均逐字节复核；`manifest.json.imports` 列出全部导入及各自 `status`（`exported` / `incomplete` / `unverified`）、`exported_file_count`、`missing_files`、`error`。
 - 每份 Manifest 在导出前经自身校验与 `challenge_imported` 事件绑定校验；未验证的导入不会导出任何文件，只记录为 `unverified`。
-- 任意一次导入文件缺失/大小或哈希不匹配、任一 Artifact 校验失败、或存在未验证导入 → 整个档案标记 `incomplete`（响应头、manifest、`INCOMPLETE.txt` 一致），导出仍返回 200。
+- 任意一次导入文件缺失/大小或哈希不匹配、任一 Artifact 校验失败、存在未验证导入、或人工稿完整性校验失败 → 整个档案标记 `incomplete`（响应头、manifest、`INCOMPLETE.txt` 一致），导出仍返回 200。
+- `writeup.md` 规则：人工稿有效 → 逐字节等于人工稿；无人稿 → `> 注意：尚未保存人工稿，本文件为服务器生成的初稿。` + 初稿；人工稿损坏 → `> 注意：已保存的人工稿完整性校验失败，本文件为服务器生成的初稿。` + 初稿（不输出篡改内容）。
+- `manifest.json.writeup` 记录：`final_source`（`human`/`generated`）、`final_sha256`/`final_size`、`generated.sha256/size`、`human.version/sha256/size/saved_at`（或 null）、`integrity_error`；`SHA256SUMS` 含 `writeup.md` 与 `writeup_generated.md`。
 - 不修改任何事件或 Artifact；事件按 sequence 输出；文件名/路径净化，防 ZIP 内路径穿越；`SHA256SUMS` 覆盖所有实际交付文件。
 - 导出为只读投影；临时 ZIP 响应后由后台任务删除。
+
+### 4.10 人工稿持久化（人工编辑 Writeup）
+
+人工稿与服务器初稿严格分离：初稿由 `GET /writeup/preview` 实时生成；人工稿由选手编辑并通过本接口保存，**不写入事件链**（不产生 `tool_*`/`finding`/`verification` 事件，不改 `integrity` 结果），因此不会被当作自动执行或已验证事实。
+
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| GET | `/api/challenges/{cid}/writeup/draft` | 200 `WriteupDraft`；无稿 404；sidecar 损坏/篡改 409（不返回内容） |
+| PUT | `/api/challenges/{cid}/writeup/draft` | 创建 201 / 更新 200；版本冲突 409；空稿 422；超限 413 |
+
+请求（`extra=forbid`）：
+
+```json
+{"content": "# 解题思路\n\n人工 Markdown……", "base_version": 2}
+```
+
+- `content`：人工 Markdown；UTF-8 字节数 ≤ `CTF_MAX_WRITEUP_BYTES`（默认 1 MiB）；`strip()` 后不得为空。
+- `base_version`：**严格非负整数**（拒绝字符串/浮点/布尔/负数，422）；`0` 表示“服务端尚无人工稿”，`N` 表示客户端编辑时看到的版本。
+
+响应 `WriteupDraft`：`challenge_id, content, version(≥1), sha256, size, saved_at, is_human_draft=true`；`sha256` 为 content UTF-8 字节的 SHA-256，`size` 为字节数，`saved_at` 为服务器保存时间（UTC）。
+
+版本冲突：`409`，`detail={message, current}`，`current` 为最新 `WriteupDraft` 或 `null`；服务端在锁内比较 `base_version` 后原子写入，**绝不静默覆盖**。两个并发保存同一 base 时恰好一个成功，另一个收到 409。
+
+存储与原子性：`<data_root>/writeups/<challenge_id>.json`，临时文件 → `fsync` → `os.replace`；保留最新版本（MVP 不做历史版本管理），读取时校验 `challenge_id/sha256/size`，损坏或符号链接拒绝。**仅支持单进程**本地服务，不宣称支持多进程同时写入。
+
+请求安全：对 `PUT .../writeup/draft` 做 `Content-Length` 预检并按实际接收字节数计数（覆盖 chunked），超过 `1 MiB + JSON 开销` 直接 413，避免绕过内容上限；最终精确上限仍由存储层校验。
+
+SHA-256 完整性边界：该校验用于检测内容与元数据不一致（意外损坏、简单篡改、导入/导出一致性），**不宣称能够抵御拥有文件系统完全控制权的攻击者**；后者可同时改写内容与记录的 SHA。
+
+前端旧草稿兼容（供 Codex 联调）：后端无人工稿时 GET 返回 404，前端应**保留 localStorage 旧草稿**并提示“服务器尚无人工稿，是否迁移”；用户确认后以 `base_version=0` 保存迁移。若服务器已有稿而前端本地草稿不同，保存会收到 409 + `current`，前端必须展示服务器最新稿并让用户显式选择，**不得静默覆盖**本地或服务器版本；只在成功保存或用户明确放弃后才清理本地草稿。
 
 ## 5. 本地启动与演示
 
@@ -233,20 +269,24 @@ curl.exe -sS "$b/api/challenges/<cid>/imports/<import_id>/files/readme.txt"
 curl.exe -sS -X POST "$b/api/challenges/<cid>/manual-operations" -H "Content-Type: application/json" -d '{\"command\":\"python solve.py\",\"working_directory\":\"D:\\\\demo\",\"purpose\":\"手动运行\",\"exit_code\":0,\"result_note\":\"输出合成结果\"}'
 # 7) 上传证据（flag_capture / platform_verification / execution）
 curl.exe -sS -X POST "$b/api/challenges/<cid>/artifacts" -F "file=@flag.png;type=image/png" -F "evidence_kind=flag_capture"
-# 8) 时间线与完整性、Writeup、导出
+# 8) 时间线与完整性、Writeup 初稿
 curl.exe -sS "$b/api/challenges/<cid>/events"
 curl.exe -sS "$b/api/challenges/<cid>/integrity"
 curl.exe -sS "$b/api/challenges/<cid>/writeup/preview"
+# 9) 保存/读取人工稿（base_version=0 新建；后续用当前 version 更新）
+curl.exe -sS -X PUT "$b/api/challenges/<cid>/writeup/draft" -H "Content-Type: application/json" -d '{"content":"# 人工稿\n\n由选手编辑","base_version":0}'
+curl.exe -sS "$b/api/challenges/<cid>/writeup/draft"
+# 10) 导出最终证据 ZIP（writeup.md 为人工稿，writeup_generated.md 为初稿）
 curl.exe -sS -o dossier.zip "$b/api/challenges/<cid>/export"
 ```
 
 ## 6. 已知限制与风险
 
-1. **单进程**：项目配置/上传锁为进程内串行化；多 worker 或多实例写同一 data 目录不支持。
+1. **单进程**：项目配置/上传锁/人工稿版本锁为进程内串行化；多 worker 或多实例写同一 data 目录不支持。人工稿只保留最新版本，没有历史版本/回滚接口。
 2. **无认证**：本地回环单用户服务，不要暴露到其他主机；题目归属校验不是多用户授权模型。
 3. **无数据库迁移**：项目配置在 JSON 文件；若进程在项目/规则写入时崩溃，原子 replace 保证不会留下半写文件，但需要一次完整写入才能更新。
 4. **没有真正的自动执行/验证**：`execution_mode=manual_external`、`execution_verified=false` 是固定语义；工作台无法证明用户手动操作真实发生，只能记录申报与证据。
-5. **哈希链威胁模型**：只能检测未重算哈希的篡改；拥有 DB/文件系统完全控制权者可重写链，无外部签名。
+5. **哈希链与人工稿 SHA-256 的威胁模型**：只能检测未重算哈希/摘要的篡改；拥有 DB/文件系统完全控制权者可同时改写内容与记录的 SHA，无外部签名。SHA-256 是内容一致性检查，不是防全盘控制者的密码学证明。
 6. **导入预算为应用级防护**：防 ZIP Slip/炸弹/资源耗尽的常见形式，但不是 OS 沙箱；解压文件不执行，不应把工作台当安全执行环境。
 7. **Writeup 初稿的“核心代码”** 只从 `source_code`/`analysis` 文本 Artifact 截断展示（单文件 20 KiB / 总计 150 KiB / 最多 10 个），完整文件在导出档案中；普通文本文件不会冒充核心代码。
 8. **截图/Flag 验证是外部事实**：预览与导出只引用用户上传的截图 Artifact 和人工申报，不验证截图内容或平台结果。

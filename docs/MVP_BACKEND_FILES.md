@@ -13,9 +13,11 @@
 | `backend/app/writeup.py` | 383 | 仅基于 Challenge/事件/Artifact/人工笔记/规则/AI 等级生成确定性的 Writeup 初稿；固定缺失标记与完整性判定。 |
 | `backend/app/export.py` | 349 | 完整证据 ZIP 导出：证据逐个复核 SHA-256、原始/解压文件、分类证据、脚本、事件/时间线日志、Writeup、AI 披露、manifest、SHA256SUMS、不完整标记。 |
 | `backend/app/schema_cli.py` | 110 | 导出 `docs/openapi.json` 与 `docs/contracts.json` 的可复现命令（`python -m app.schema_cli`）。 |
+| `backend/app/writeups.py` | 新增 | 人工稿 sidecar 存储：版本比较、1 MiB UTF-8 上限、SHA/size/challenge 校验、符号链接/损坏拒绝、原子写（temp+fsync+os.replace）、进程内锁。 |
 | `backend/tests/test_mvp_imports.py` | 1076 | 42 个测试函数 / 50 个用例：项目规则、Challenge 扩展兼容、ZIP 导入与 12 类安全用例、证据分类、人工操作、health/限制/重启。 |
 | `backend/tests/test_mvp_writeup_export.py` | 756 | 21 个测试函数 / 24 个用例：Writeup 预览、缺失标记、AI 披露、导出结构与 SHA256SUMS、字节一致性、不完整/篡改/只读、端到端流程。 |
 | `backend/tests/test_mvp_review_fixes.py` | 新增 | 24 个测试函数 / 27 个用例：PR #7 独立审查修复回归（文件读取完整性、Manifest/事件绑定、全部导入导出、Writeup approach/code/execution 完整性）。 |
+| `backend/tests/test_mvp_writeup_persistence.py` | 新增 | 23 个测试函数：人工稿创建/读取/重启恢复/版本更新/并发冲突/空稿超长/严格类型/篡改 fallback/最终 ZIP 字节一致/SHA256SUMS/无事件污染/请求安全/legacy 迁移。 |
 | `docs/MVP_BACKEND.md` | 151 | 后端 API 契约、数据布局、安全预算、演示步骤、已知限制。 |
 | `docs/MVP_BACKEND_FILES.md` | — | 本文件。 |
 | `docs/MVP_BACKEND_TEST_REPORT.md` | — | 测试、Ruff、CI 结果与 B9 覆盖映射。 |
@@ -54,6 +56,23 @@
 | `backend/tests/test_mvp_review_fixes.py` | 新增 P1-1/P1-2/P1-3/P2-1 全量回归测试。 |
 | `docs/MVP_BACKEND.md` | 更新 Manifest 校验、文件读取 409、逐导入导出、Writeup approach/code/execution 语义与标记。 |
 | `docs/openapi.json` / `docs/contracts.json` | 由 `python -m app.schema_cli` 重新生成（NoteCreate.kind、ImportRecord 验证字段）。 |
+
+## 人工稿持久化追加变更（2026-11-08）
+
+| 文件 | 变更 |
+|---|---|
+| `backend/app/models.py` | 新增 `WriteupDraft`（响应）与 `WriteupDraftSave`（请求；`content` StrictStr、`base_version` StrictInt≥0、extra forbid）。 |
+| `backend/app/writeups.py` | 新增 `WriteupStore`：每 Challenge sidecar、版本 v1 起、SHA-256/size/服务器时间、1 MiB、乐观冲突、原子写、单进程锁、损坏拒绝。 |
+| `backend/app/main.py` | `max_writeup_bytes` / `CTF_MAX_WRITEUP_BYTES`；`GET/PUT /writeup/draft`（201/200/409/413/422；无别名）；Writeup PUT 请求体 Content-Length 预检 + 实际接收字节计数（含 chunked，超限 413）；导出加载人工稿并传递生成稿/人工稿/完整性错误；health 增加 `writeup_max_bytes`；版本 0.3.0。 |
+| `backend/app/export.py` | 新增 `writeup_generated.md`；`writeup.md` 人工稿逐字节/初稿+注明/损坏 fallback；manifest `writeup` 段（final_source/final_sha256/final_size/generated/human/integrity_error）；人工稿损坏 → incomplete + INCOMPLETE 说明；SHA256SUMS 自动覆盖两份 writeup。 |
+| `backend/app/schema_cli.py` | 导出模型清单加入 `WriteupDraft`/`WriteupDraftSave`。 |
+| `backend/tests/test_mvp_writeup_export.py` | 适配 `writeup_generated.md`、无人工稿 `writeup.md` 头注、manifest writeup 字段（不删除原有测试）。 |
+| `backend/tests/test_mvp_writeup_persistence.py` | 新增 23 项回归（B3 10 项 + 并发/无事件/请求安全/legacy 迁移/原子性）。 |
+| `docs/MVP_BACKEND.md` | 新增 §4.10 人工稿契约（路径、请求/响应、409、1 MiB、原子性、单进程、SHA256 完整性边界、前端 localStorage 迁移指引）；更新导出结构/manifest/限制。 |
+| `docs/MVP_WRITEUP_ACCEPTANCE.md` | 真实 HTTP 验收记录（30 条请求、ZIP/manifest/SHA 校验、tamper fallback、证据文件哈希）。 |
+| `docs/openapi.json` / `docs/contracts.json` | 重新生成新端点与模型。 |
+
+**无数据库迁移**；数据目录新增 `writeups/` sidecar 目录（运行时，不提交）。
 
 ## 复现命令
 
