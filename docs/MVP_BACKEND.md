@@ -1,7 +1,6 @@
 # MVP 后端工作流（DeepSeek / Part B）
 
-分支：`feat/mvp-backend-workflow`（基于 `feat/p1-2-a00-integration` / PR #6 固定基线 `96152b7a66e16d726d50bebb4d833167b140e19c`）
-目标 PR：以 `feat/p1-2-a00-integration` 为 base 的 Draft PR（不合并、不改写 PR #6）。
+**状态补充（2026-11-08）：** 本后端实现已通过 PR #7 合并进入 `feat/p1-2-a00-integration`；PR #7 当前为 merged，不再是 Draft。原分支、基线 SHA 和下文开发记录保留为历史实现证据。当前整合状态、HEAD、统一 CI 及未完成验收项见 [A00/MVP 整合验收补充记录](A00_MVP_INTEGRATION_ACCEPTANCE_20261108.md)。
 
 本轮实现「人工执行模式」的完整后端流程：项目与规则 → 题目元数据扩展 → ZIP 安全导入 → 证据分类 → 人工运行补录 → 事件时间线/完整性 → Writeup 初稿 → 完整证据 ZIP 导出。
 
