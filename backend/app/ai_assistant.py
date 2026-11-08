@@ -13,9 +13,7 @@ from pathlib import Path
 
 from pydantic import Field
 
-from .models import Model
-
-from .models import Challenge, Project
+from .models import Challenge, Project, Model
 from .providers import (
     DeepSeekAdapter,
     Message,
@@ -54,8 +52,8 @@ TEXT_SUFFIXES = {
     ".yml", ".toml", ".ini", ".cfg", ".asm", ".s", ".go", ".rs",
 }
 SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|access[_-]?token|password|passwd|secret)\\s*[:=]\\s*['\"]?[^\\s'\"]{6,}"),
-    re.compile(r"(?i)bearer\\s+[A-Za-z0-9._~+/=-]{12,}"),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|password|passwd|secret)\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{12,}"),
 ]
 
 
@@ -206,7 +204,7 @@ async def ask_challenge(
                     + context
                 ),
             ),
-            Message(role="user", content=question),
+            Message(role="user", content=_redact(question)),
         ]
     )
     response = await recorded_complete(
