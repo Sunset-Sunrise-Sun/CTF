@@ -42,3 +42,11 @@ This repository is public. Commit application code, documentation, tests, and sy
 - [File change list](docs/P1_FILES.md)
 - [Test report](docs/P1_TEST_REPORT.md)
 - [Artifact/Event constraint fix report](docs/P1_FIX_REPORT.md)
+
+## MVP backend workflow (manual execution mode)
+
+- [Backend API contract, security model, demo steps and known limitations](docs/MVP_BACKEND.md)
+- [File change list](docs/MVP_BACKEND_FILES.md)
+- [Test report](docs/MVP_BACKEND_TEST_REPORT.md)
+- [Deliverable checksums](docs/MVP_BACKEND_SHA256SUMS)
+- [Human writeup draft + final ZIP HTTP acceptance](docs/MVP_WRITEUP_ACCEPTANCE.md)
