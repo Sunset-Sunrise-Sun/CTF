@@ -85,7 +85,14 @@ CI 环境：GitHub Actions `P0 checks`（Ubuntu latest，Python 3.11，Node 22�
 
 PR：**#7**（Draft）https://github.com/Sunset-Sunrise-Sun/CTF/pull/7 ，目标分支 `feat/p1-2-a00-integration`。
 
-提交 `67f236ba`（初版）、`5f343697`（审查修复）的 `P0 checks` 均已通过。本轮「人工稿持久化 + 最终 ZIP」提交的两次 `P0 checks` 运行结果待推送后回填；PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
+提交 `67f236ba`（初版）、`5f343697`（审查修复）的 `P0 checks` 均已通过。本轮「人工稿持久化 + 最终 ZIP」提交 `015ed189` 的两次 `P0 checks` 均通过：
+
+| 运行 | 事件 | 结果 | 链接 |
+|---|---|---|---|
+| 42449791781 | push | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42449791781 |
+| 42449795802 | pull_request | **success**（backend success / frontend success） | https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42449795802 |
+
+本报告所在文档提交会再次触发同一 workflow，PR 最终 head 以 PR Checks 页面最新运行结果为准（验收时应为通过）。
 
 ## 复现
 
