@@ -51,7 +51,7 @@ def main() -> None:
                     messages=[
                         Message(
                             role="user",
-                            content="Reply with OK. This is a synthetic connectivity test; no challenge data is included.",
+                            content="Reply with OK. This is a synthetic connectivity test; no user-provided content is included.",
                         )
                     ]
                 ),
