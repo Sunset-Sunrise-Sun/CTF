@@ -331,4 +331,4 @@ def test_synthetic_model_connectivity_sends_only_fixed_prompt(tmp_path, monkeypa
     }
     assert captured["authorization"] == "Bearer synthetic-test-key"
     assert "Reply with OK" in captured["body"]
-    assert "challenge" not in captured["body"].lower()
+    assert "Synthetic Web" not in captured["body"]
