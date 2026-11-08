@@ -47,7 +47,7 @@ def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monk
         provider_id="deepseek",
         adapter="deepseek",
         base_url="https://api.deepseek.com",
-        model_id="deepseek-chat",
+        model_id="deepseek-flash",
         api_key_env="DEEPSEEK_API_KEY",
     )
     monkeypatch.setattr(
@@ -205,7 +205,7 @@ def test_ai_chat_redacts_secrets_before_provider_and_audit(tmp_path, monkeypatch
         provider_id="deepseek",
         adapter="deepseek",
         base_url="https://api.deepseek.com",
-        model_id="deepseek-chat",
+        model_id="deepseek-flash",
         api_key_env="DEEPSEEK_API_KEY",
     )
     monkeypatch.setattr(
@@ -258,7 +258,7 @@ def test_ai_chat_second_turn_receives_first_turn_as_recorded_context(tmp_path, m
         provider_id="deepseek",
         adapter="deepseek",
         base_url="https://api.deepseek.com",
-        model_id="deepseek-chat",
+        model_id="deepseek-flash",
         api_key_env="DEEPSEEK_API_KEY",
     )
     monkeypatch.setattr(
@@ -311,7 +311,7 @@ def test_synthetic_model_connectivity_sends_only_fixed_prompt(tmp_path, monkeypa
         provider_id="deepseek",
         adapter="deepseek",
         base_url="https://api.deepseek.com",
-        model_id="deepseek-chat",
+        model_id="deepseek-flash",
         api_key_env="DEEPSEEK_API_KEY",
     )
     monkeypatch.setattr(
@@ -326,7 +326,7 @@ def test_synthetic_model_connectivity_sends_only_fixed_prompt(tmp_path, monkeypa
     assert response.json() == {
         "success": True,
         "provider": "deepseek",
-        "model_id": "deepseek-chat",
+        "model_id": "deepseek-flash",
         "sent_synthetic_content_only": True,
     }
     assert captured["authorization"] == "Bearer synthetic-test-key"
