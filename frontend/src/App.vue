@@ -214,7 +214,17 @@ async function select(c: Challenge) {
   await Promise.all([refresh(), draft.value.load()]);
 }
 async function loadAIStatus() {
-  aiStatus.value = await request("/model/status");
+  try {
+    aiStatus.value = await request<{
+      network_enabled: boolean;
+      provider: string;
+      model_id: string;
+      credentials_configured: boolean;
+      execution_enabled: boolean;
+    }>("/model/status");
+  } catch {
+    aiStatus.value = undefined;
+  }
 }
 async function askAI() {
   if (!selectedId.value || !aiQuestion.value.trim() || !aiConsent.value) return;
