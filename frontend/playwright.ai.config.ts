@@ -27,7 +27,7 @@ export default defineConfig({
       command: "npm run dev -- --config vite.ai.config.ts --host 127.0.0.1 --port 15174 --strictPort",
       cwd: ".",
       url: "http://127.0.0.1:15174",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120000,
     },
   ],
