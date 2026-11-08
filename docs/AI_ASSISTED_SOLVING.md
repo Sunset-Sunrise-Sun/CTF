@@ -56,6 +56,16 @@ python -m app.ai_smoke_cli --allow-model-network
 - `ai_usage_not_permitted`：题目等级不允许 AI。
 - `rate_limited`、`timeout`、`authentication`、`upstream_error`、`transport_error`、`invalid_response`：Provider 错误；不会自动重试。
 
+## 自动化端到端检查
+
+在已安装 Python 后端依赖、Node 依赖和 Playwright Chromium 的环境中，可从 `frontend` 目录运行：
+
+```powershell
+npm run test:e2e:ai
+```
+
+该专用测试会自动启动隔离的本地 FastAPI 与 Vite 服务，使用独立的 `.playwright-ai-data` 数据目录，并强制关闭模型联网；它验证 AI 面板、题目等级为 A2 时的 UI 展示、用户勾选数据外发确认，以及服务端未开启联网时的 503 拒绝。测试不会连接真实模型，也不会发送题目内容到外部服务。
+
 ## 验收边界
 
 Mock 测试只验证业务门控、事件记录和脱敏；不等于真实 DeepSeek 网络验证。真实连通性需在用户自己的机器上设置合法凭证后，通过工作台发送合成题目测试。当前服务是无认证的本地单用户工作台，不应暴露到公网或不可信局域网。
