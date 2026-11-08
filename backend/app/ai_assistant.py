@@ -169,14 +169,14 @@ def collect_challenge_context(
         "CHALLENGE",
         f"Name: {challenge.name}",
         f"Category: {challenge.category}",
-        f"Description: {challenge.description[:12000]}",
+        f"Description: {redact_sensitive(challenge.description[:12000])}",
         f"AI usage level: {challenge.ai_usage_level}",
     ]
     if project:
         sections.extend([
             "COMPETITION POLICY (user supplied; follow conservatively)",
-            f"Competition: {project.competition_name}",
-            f"AI policy: {project.ai_policy_summary[:4000]}",
+            f"Competition: {redact_sensitive(project.competition_name)}",
+            f"AI policy: {redact_sensitive(project.ai_policy_summary[:4000])}",
         ])
     sections.append(
         "RECORDED CONTEXT (observations and user-reported actions; not independently verified)"
