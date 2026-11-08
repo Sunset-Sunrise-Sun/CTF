@@ -27,6 +27,14 @@ import type {
   Preview,
 } from "./domain";
 import "./style.css";
+import {
+  DraftSession,
+  draftBytes,
+  MAX_DRAFT_BYTES,
+  createDraftCache,
+} from "./drafts";
+import type { HumanDraft } from "./drafts";
+const draft = ref<DraftSession>();
 const challenges = ref<Challenge[]>([]),
   selected = ref<Challenge>(),
   project = ref<Project>(),
@@ -69,9 +77,18 @@ const evidence = reactive({ evidence_kind: "other", capture_time_claim: "" }),
   note = ref(""),
   noteKind = ref("note"),
   retrospective = ref(false);
-const markdown = ref(""),
+const markdown = computed({
+    get: () => draft.value?.content ?? "",
+    set: (value) => draft.value?.edit(value),
+  }),
   preview = ref<Preview>(),
-  edited = ref(false),
+  edited = computed(
+    () =>
+      !!draft.value &&
+      draft.value.origin !== "empty" &&
+      draft.value.origin !== "generated" &&
+      draft.value.state !== "saved",
+  ),
   previewText = ref(""),
   previewImage = ref(""),
   previewName = ref("");
@@ -150,8 +167,26 @@ async function select(c: Challenge) {
   imports.value = [];
   preview.value = undefined;
   integrity.value = undefined;
-  markdown.value = "";
-  edited.value = false;
+  const key = draftKey(c.challenge_id),
+    endpoint =
+      "/challenges/" + encodeURIComponent(c.challenge_id) + "/writeup/draft";
+  draft.value = new DraftSession({
+    read: () => request<HumanDraft>(endpoint),
+    write: (body) => request<HumanDraft>(endpoint, body, "PUT"),
+    ...createDraftCache(
+      key,
+      {
+        getItem: (k) => localStorage.getItem(k),
+        setItem: (k, v) => localStorage.setItem(k, v),
+        removeItem: (k) => localStorage.removeItem(k),
+      },
+      {
+        getItem: (k) => sessionStorage.getItem(k),
+        setItem: (k, v) => sessionStorage.setItem(k, v),
+        removeItem: (k) => sessionStorage.removeItem(k),
+      },
+    ),
+  });
   tab.value = "overview";
   note.value = "";
   noteKind.value = "note";
@@ -167,15 +202,10 @@ async function select(c: Challenge) {
   });
   try {
     localStorage.setItem("ctf-workbench:selected", c.challenge_id);
-    const s = localStorage.getItem(draftKey(c.challenge_id));
-    if (s !== null) {
-      markdown.value = s;
-      edited.value = true;
-    }
   } catch {
     notice.value = "浏览器存储不可用，请手动下载草稿。";
   }
-  await refresh();
+  await Promise.all([refresh(), draft.value.load()]);
 }
 async function saveProject() {
   project.value = await request<Project>("/project", { ...projectForm }, "PUT");
@@ -289,45 +319,55 @@ async function addNote() {
   await refresh();
 }
 async function generate() {
-  if (edited.value) {
-    notice.value = "已有人工草稿，请先下载保存，或放弃草稿后重新生成。";
-    return;
-  }
   preview.value = await request<Preview>(root.value + "/writeup/preview");
-  markdown.value = preview.value.markdown;
+  if (!draft.value?.useGenerated(preview.value.markdown))
+    notice.value = "已刷新服务器初稿，当前人工稿保留；可在下方查看初稿。";
   tab.value = "writeup";
 }
-function edit() {
-  edited.value = true;
-  try {
-    localStorage.setItem(draftKey(selectedId.value!), markdown.value);
-  } catch {
-    error.value = "无法保存浏览器草稿，请立即下载 Markdown。";
-  }
+async function discard() {
+  if (
+    !draft.value ||
+    !window.confirm("放弃本地修改并重新读取服务器人工稿？不会删除服务器稿件。")
+  )
+    return;
+  draft.value.io.clearLocal();
+  draft.value.memoryLocal = false;
+  await draft.value.load();
 }
-function discard() {
-  if (!window.confirm("放弃此题浏览器中保存的人工草稿？")) return;
-  try {
-    localStorage.removeItem(draftKey(selectedId.value!));
-    markdown.value = "";
-    edited.value = false;
-    preview.value = undefined;
-  } catch {
-    error.value = "浏览器存储不可用";
-  }
+async function saveDraft() {
+  await draft.value?.save();
+}
+async function reloadDraft() {
+  await draft.value?.load();
 }
 function downloadMarkdown() {
   saveBlob(
-    new Blob(
-      [
-        `> ${status.value}\n> 人工编辑稿不改变原始证据或服务器档案。\n\n${markdown.value}`,
-      ],
-      { type: "text/markdown;charset=utf-8" },
-    ),
+    new Blob([markdown.value], { type: "text/markdown;charset=utf-8" }),
     (selected.value?.name || "writeup") + ".md",
   );
 }
 async function exportZip() {
+  if (
+    draft.value?.content &&
+    draft.value.state !== "saved" &&
+    !window.confirm(
+      "当前编辑内容未保存到服务器。ZIP 只采用服务器已保存人工稿；没有有效人工稿时采用初稿。是否继续导出？",
+    )
+  )
+    return;
+  let source = "尚未保存人工稿，将采用服务器初稿并注明。";
+  try {
+    const current = await request<HumanDraft>(root.value + "/writeup/draft");
+    source =
+      "导出请求前服务器人工稿 v" +
+      current.version +
+      "；最终来源及版本以 ZIP manifest 为准。";
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 409)
+      source = "服务器人工稿校验异常，将由后端回退初稿并标为 incomplete。";
+    else if (status !== 404) throw e;
+  }
   const p = await request<Preview>(root.value + "/writeup/preview");
   preview.value = p;
   const r = await fetch("/api" + root.value + "/export");
@@ -339,7 +379,8 @@ async function exportZip() {
     `evidence-${exported || "incomplete"}-${selectedId.value}.zip`,
   );
   notice.value =
-    "ZIP 是服务器证据快照，含服务器初稿；人工编辑请另存 Markdown。实际导出完整性：" +
+    source +
+    " ZIP 含最终稿及 writeup_generated.md 初稿；未保存的本地编辑不在其中。实际导出完整性：" +
     (exported || "未确认 / incomplete");
 }
 async function copyCommand() {
@@ -771,13 +812,15 @@ docker run --rm --network none ctf-local</pre
             <h3>Writeup 工作区</h3>
             <p>{{ status }}</p>
             <p class="muted">
-              草稿仅保存在此浏览器。ZIP 仍含服务器初稿；人工编辑请另存
-              Markdown。AI 建议不得改写为执行事实。
+              保存到服务器后，人工稿会成为 ZIP 的 writeup.md；服务器初稿另存
+              writeup_generated.md。未保存修改仅在浏览器，请先保存或另存
+              Markdown。人工内容不构成已验证执行事实。
             </p>
             <div class="actions">
               <button :disabled="!!busy" @click="guard('生成初稿', generate)">
                 生成服务器初稿</button
-              ><button :disabled="!!busy" @click="discard">放弃本地草稿</button
+              ><button :disabled="!!busy" @click="guard('读取人工稿', discard)">
+                放弃本地修改</button
               ><button :disabled="!markdown" @click="downloadMarkdown">
                 下载 Markdown</button
               ><button :disabled="!markdown" @click="print">
@@ -786,6 +829,111 @@ docker run --rm --network none ctf-local</pre
                 下载证据 ZIP
               </button>
             </div>
+            <section v-if="draft" class="draft-state">
+              <p class="save-status" role="status">
+                {{
+                  {
+                    unsaved: "未保存",
+                    saving: "正在保存",
+                    saved: "已保存",
+                    error: "保存失败",
+                    conflict: "版本冲突",
+                  }[draft.state]
+                }}{{
+                  draft.state === "saved"
+                    ? "（版本 v" + draft.server?.version + "）"
+                    : ""
+                }}
+              </p>
+              <p v-if="draft.server" class="draft-metadata">
+                服务器版本 v{{ draft.server.version }} ·
+                {{ draft.server.saved_at }} ·
+                {{ draft.server.size }} B<br /><code>{{
+                  draft.server.sha256
+                }}</code>
+              </p>
+              <p>
+                当前稿 {{ draftBytes(markdown) }} / {{ MAX_DRAFT_BYTES }} UTF-8
+                字节
+              </p>
+              <p v-if="draft.error" class="error" role="alert">
+                {{ draft.error }}
+              </p>
+              <p v-if="draft.storageWarning" class="warning" role="alert">
+                {{ draft.storageWarning }}
+              </p>
+              <div class="actions">
+                <button
+                  class="primary"
+                  :disabled="
+                    !!busy ||
+                    !draft.canSave ||
+                    draft.migration ||
+                    draft.state === 'saved'
+                  "
+                  @click="guard('保存人工稿', saveDraft)"
+                >
+                  保存到服务器
+                </button>
+                <button
+                  :disabled="!!busy"
+                  @click="guard('读取人工稿', reloadDraft)"
+                >
+                  重新读取人工稿
+                </button>
+              </div>
+              <div
+                v-if="draft.migration && !draft.hasConflict"
+                class="notice migration"
+              >
+                <p>发现本地未同步的人工稿，是否保存到服务器？</p>
+                <button
+                  :disabled="!!busy || !draft.canSave"
+                  @click="guard('迁移人工稿', saveDraft)"
+                >
+                  确认迁移并保存
+                </button>
+              </div>
+              <div
+                v-if="draft.hasConflict"
+                class="notice draft-conflict"
+                role="alert"
+              >
+                <h4>服务器稿与本地稿不同，请选择或手动合并</h4>
+                <div class="row">
+                  <label
+                    >服务器最新稿（只读）<textarea
+                      :value="draft.current?.content ?? '服务器目前无人工稿'"
+                      readonly
+                    /></label
+                  ><label
+                    >本地稿（只读副本，主编辑器可修改）<textarea
+                      :value="markdown"
+                      readonly
+                    />
+                  </label>
+                </div>
+                <p>
+                  服务器最新版本
+                  {{
+                    draft.current?.version ?? 0
+                  }}。不会自动覆盖，也不会自动重试。
+                </p>
+                <button :disabled="!!busy" @click="draft.useServer()">
+                  采用服务器稿（放弃本地修改）
+                </button>
+                <button :disabled="!!busy" @click="draft.keepLocalOnLatest()">
+                  保留本地内容，按最新版本手动合并
+                </button>
+                <p>
+                  保留后请在主编辑器完成合并，再明确点击保存；此按钮不会提交。
+                </p>
+              </div>
+            </section>
+            <details v-if="preview">
+              <summary>查看服务器生成初稿（与人工稿分离）</summary>
+              <pre>{{ preview.markdown }}</pre>
+            </details>
             <ul v-if="preview">
               <li
                 v-for="m in [
@@ -802,7 +950,6 @@ docker run --rm --network none ctf-local</pre
               >Markdown 人工编辑<textarea
                 class="markdown-editor"
                 v-model="markdown"
-                @input="edit"
                 spellcheck="false"
               />
             </label>

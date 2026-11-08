@@ -153,6 +153,7 @@ test("real FastAPI: full synthetic manual workflow, reload and downloads", async
   expect((await md).suggestedFilename()).toMatch(/\.md$/);
   mkdirSync("test-results/demo", { recursive: true });
   await (await md).saveAs("test-results/demo/edited.md");
+  page.once("dialog", (dialog) => dialog.accept());
   const dl = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载证据 ZIP", exact: true }).click();
   expect((await dl).suggestedFilename()).toMatch(/evidence-.*\.zip$/);

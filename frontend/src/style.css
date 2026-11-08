@@ -494,3 +494,28 @@ progress {
     color: #000;
   }
 }
+
+.draft-state {
+  margin: 18px 0;
+  padding: 16px;
+  background: #f3f7f6;
+  border: 1px solid #d5e3df;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.save-status {
+  font-weight: 650;
+}
+.draft-state textarea[readonly] {
+  background: #f6f8fa;
+}
+.draft-conflict {
+  border: 1px solid #d7ae69;
+}
+.draft-conflict button {
+  margin: 4px;
+}
+.draft-metadata {
+  font-size: 12px;
+  color: #576c79;
+}

@@ -35,9 +35,11 @@ export async function loadImportDetails(
 }
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, detail: string) {
+  detail: unknown;
+  constructor(status: number, detail: string, structuredDetail?: unknown) {
     super(`${status} · ${detail}`);
     this.status = status;
+    this.detail = structuredDetail;
   }
 }
 async function detail(r: Response) {
@@ -56,10 +58,20 @@ export async function request<T>(
 ): Promise<T> {
   const r = await fetch(base + path, {
     method,
+    signal: AbortSignal.timeout(30000),
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!r.ok) throw new ApiError(r.status, await detail(r));
+  if (!r.ok) {
+    const payload = await r.json().catch(() => undefined);
+    throw new ApiError(
+      r.status,
+      typeof payload?.detail === "string"
+        ? payload.detail
+        : JSON.stringify(payload?.detail ?? "请求失败"),
+      payload?.detail,
+    );
+  }
   return r.json();
 }
 export function upload<T>(
