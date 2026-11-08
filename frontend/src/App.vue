@@ -1,33 +1,849 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-type Category = 'Misc'|'Crypto'|'Pwn'|'Web'|'Reverse';
-interface Challenge { challenge_id:string; name:string; category:Category; solve_status:string; writeup_status:string }
-interface Event { event_id:string; sequence:number; occurred_at:string; actor:string; event_type:string; payload:Record<string,unknown>; artifact_ids:string[]; event_refs:string[]; event_hash:string }
-const categories:Category[]=['Misc','Crypto','Pwn','Web','Reverse'];
-const challenges=ref<Challenge[]>([]), events=ref<Event[]>([]), selected=ref<Challenge>(), name=ref(''), category=ref<Category>('Misc'), note=ref(''), retrospective=ref(false), error=ref(''), integrity=ref('');
-async function api<T>(path:string, body?:unknown):Promise<T> {
- const response=await fetch('/api'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- if(!response.ok) throw new Error('请求失败：'+response.status);
- return response.json();
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { request, upload, limitedBlob, saveBlob } from "./api";
+import {
+  categories,
+  evidenceKinds,
+  eventLabel,
+  sizeLabel,
+  filePath,
+  draftKey,
+  completeness,
+} from "./domain";
+import type {
+  Challenge,
+  Project,
+  Artifact,
+  AuditEvent,
+  ImportRecord,
+  ImportFile,
+  Preview,
+} from "./domain";
+import "./style.css";
+const challenges = ref<Challenge[]>([]),
+  selected = ref<Challenge>(),
+  project = ref<Project>(),
+  events = ref<AuditEvent[]>([]),
+  artifacts = ref<Artifact[]>([]),
+  imports = ref<ImportRecord[]>([]);
+const busy = ref(""),
+  error = ref(""),
+  notice = ref(""),
+  tab = ref("overview"),
+  progress = ref<number | null>(null),
+  uploadStatus = ref(""),
+  integrity = ref<{
+    valid: boolean;
+    earliest_affected_sequence?: number | null;
+  }>();
+const projectForm = reactive({
+  project_name: "",
+  competition_name: "",
+  competition_type: "",
+  ai_policy_summary: "",
+});
+const challengeForm = reactive({
+  name: "",
+  category: "Misc",
+  description: "",
+  score: "",
+  ai_usage_level: "unknown",
+});
+const operation = reactive({
+  command: "",
+  working_directory: "",
+  purpose: "",
+  exit_code: "",
+  result_note: "",
+  started_at_claim: "",
+  finished_at_claim: "",
+});
+const evidence = reactive({ evidence_kind: "other", capture_time_claim: "" }),
+  note = ref(""),
+  retrospective = ref(false);
+const markdown = ref(""),
+  preview = ref<Preview>(),
+  edited = ref(false),
+  previewText = ref(""),
+  previewImage = ref(""),
+  previewName = ref("");
+const selectedId = computed(() => selected.value?.challenge_id),
+  root = computed(
+    () => "/challenges/" + encodeURIComponent(selectedId.value || ""),
+  );
+const suggestions = computed(() =>
+    events.value.filter((e) => eventLabel(e).startsWith("ai_suggestion")),
+  ),
+  status = computed(() => completeness(preview.value, edited.value));
+let previewVersion = 0;
+function clearFile() {
+  previewVersion++;
+  if (previewImage.value) URL.revokeObjectURL(previewImage.value);
+  previewImage.value = "";
+  previewText.value = "";
+  previewName.value = "";
 }
-async function guarded(action:()=>Promise<void>) { error.value='';try{await action()}catch(e){error.value=String(e)} }
-async function load(){challenges.value=await api<Challenge[]>('/challenges')}
-async function select(c:Challenge){selected.value=c;integrity.value='';events.value=await api<Event[]>('/challenges/'+c.challenge_id+'/events')}
-async function create(){await guarded(async()=>{const c=await api<Challenge>('/challenges',{name:name.value,category:category.value});name.value='';await load();await select(c)})}
-async function addNote(){await guarded(async()=>{if(!selected.value)return;await api('/challenges/'+selected.value.challenge_id+'/notes',{text:note.value,retrospective:retrospective.value});note.value='';await select(selected.value)})}
-async function verify(){await guarded(async()=>{if(selected.value)integrity.value=JSON.stringify(await api('/challenges/'+selected.value.challenge_id+'/integrity'))})}
-onMounted(()=>guarded(load));
+async function guard(label: string, action: () => Promise<void>) {
+  if (busy.value) return;
+  busy.value = label;
+  error.value = "";
+  notice.value = "";
+  try {
+    await action();
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    busy.value = "";
+  }
+}
+async function loadProject() {
+  try {
+    project.value = await request<Project>("/project");
+    Object.assign(projectForm, {
+      project_name: project.value.project_name,
+      competition_name: project.value.competition_name,
+      competition_type: project.value.competition_type,
+      ai_policy_summary: project.value.ai_policy_summary,
+    });
+  } catch (e) {
+    if (String(e).includes("404")) {
+      notice.value = "尚未创建项目，或后端项目接口不可用。";
+    } else throw e;
+  }
+}
+async function refresh() {
+  const p = root.value;
+  const [es, as, im] = await Promise.all([
+    request<AuditEvent[]>(p + "/events"),
+    request<Artifact[]>(p + "/artifacts"),
+    request<ImportRecord[]>(p + "/imports"),
+  ]);
+  events.value = es.sort((a, b) => a.sequence - b.sequence);
+  artifacts.value = as;
+  imports.value = await Promise.all(
+    im.map((i) => request<ImportRecord>(p + "/imports/" + i.import_id)),
+  );
+  preview.value = undefined;
+  integrity.value = undefined;
+}
+async function reload() {
+  challenges.value = await request<Challenge[]>("/challenges");
+  await loadProject();
+  if (selected.value) await refresh();
+}
+async function select(c: Challenge) {
+  if (selected.value?.challenge_id === c.challenge_id) return;
+  selected.value = c;
+  clearFile();
+  events.value = [];
+  artifacts.value = [];
+  imports.value = [];
+  preview.value = undefined;
+  integrity.value = undefined;
+  markdown.value = "";
+  edited.value = false;
+  tab.value = "overview";
+  note.value = "";
+  uploadStatus.value = "";
+  Object.assign(operation, {
+    command: "",
+    working_directory: "",
+    purpose: "",
+    exit_code: "",
+    result_note: "",
+    started_at_claim: "",
+    finished_at_claim: "",
+  });
+  try {
+    localStorage.setItem("ctf-workbench:selected", c.challenge_id);
+    const s = localStorage.getItem(draftKey(c.challenge_id));
+    if (s !== null) {
+      markdown.value = s;
+      edited.value = true;
+    }
+  } catch {
+    notice.value = "浏览器存储不可用，请手动下载草稿。";
+  }
+  await refresh();
+}
+async function saveProject() {
+  project.value = await request<Project>("/project", { ...projectForm }, "PUT");
+  notice.value = "项目已保存";
+}
+async function createChallenge() {
+  const c = await request<Challenge>(
+    "/challenges",
+    {
+      ...challengeForm,
+      score: challengeForm.score === "" ? null : Number(challengeForm.score),
+    },
+    "POST",
+  );
+  challenges.value = await request("/challenges");
+  await select(c);
+  challengeForm.name = "";
+}
+function chosen(e: Event) {
+  return (e.target as HTMLInputElement).files?.[0];
+}
+async function sendFile(kind: "rules" | "zip" | "artifact", file?: File) {
+  if (!file || (kind !== "rules" && !selectedId.value)) return;
+  await guard("上传文件", async () => {
+    uploadStatus.value = "正在上传";
+    progress.value = 0;
+    try {
+      await upload(
+        kind === "rules"
+          ? "/project/rules"
+          : root.value + (kind === "zip" ? "/imports" : "/artifacts"),
+        file,
+        kind === "artifact" ? { ...evidence } : {},
+        (n) => {
+          progress.value = n;
+          uploadStatus.value =
+            n === 100 ? "上传完毕，等待服务器校验 / 解压" : "正在上传";
+        },
+      );
+      uploadStatus.value =
+        kind === "zip" ? "解压完成（未执行文件）" : "服务器已保存";
+      if (kind === "rules") await loadProject();
+      else await refresh();
+      notice.value = "文件已保存。同内容去重时保留原始分类与接收时间。";
+    } catch (e) {
+      uploadStatus.value = "失败或结果未知，请刷新核对后重试";
+      throw e;
+    }
+  });
+}
+function drop(e: DragEvent) {
+  void sendFile("zip", e.dataTransfer?.files[0]);
+}
+async function showFile(name: string, type: string, path: string) {
+  clearFile();
+  const version = previewVersion,
+    b = await limitedBlob(
+      path,
+      /^image\/(png|jpeg|gif|webp)(;|$)/.test(type) ? 10485760 : 1048576,
+    );
+  if (version !== previewVersion) return;
+  previewName.value = name;
+  tab.value = "files";
+  if (/^image\/(png|jpeg|gif|webp)(;|$)/.test(type))
+    previewImage.value = URL.createObjectURL(b);
+  else if (
+    type.startsWith("text/") ||
+    /\.(py|c|h|js|ts|json|md|txt|sh)$/i.test(name)
+  ) {
+    const text = await b.text();
+    if (version === previewVersion) previewText.value = text;
+  } else
+    previewText.value = "此格式请下载原件；HTML / SVG 不渲染，代码不执行。";
+}
+function importPath(i: ImportRecord, f: ImportFile) {
+  return (
+    root.value +
+    "/imports/" +
+    i.import_id +
+    "/files/" +
+    filePath(f.relative_path)
+  );
+}
+async function record() {
+  await request(
+    root.value + "/manual-operations",
+    {
+      ...operation,
+      exit_code:
+        operation.exit_code === "" ? null : Number(operation.exit_code),
+      started_at_claim: operation.started_at_claim || null,
+      finished_at_claim: operation.finished_at_claim || null,
+    },
+    "POST",
+  );
+  await refresh();
+  tab.value = "timeline";
+  notice.value = "已保存人工申报，非工作台执行或验证。";
+}
+async function addNote() {
+  await request(
+    root.value + "/notes",
+    { text: note.value, retrospective: retrospective.value },
+    "POST",
+  );
+  note.value = "";
+  await refresh();
+}
+async function generate() {
+  if (edited.value) {
+    notice.value = "已有人工草稿，请先下载保存，或放弃草稿后重新生成。";
+    return;
+  }
+  preview.value = await request<Preview>(root.value + "/writeup/preview");
+  markdown.value = preview.value.markdown;
+  tab.value = "writeup";
+}
+function edit() {
+  edited.value = true;
+  try {
+    localStorage.setItem(draftKey(selectedId.value!), markdown.value);
+  } catch {
+    error.value = "无法保存浏览器草稿，请立即下载 Markdown。";
+  }
+}
+function discard() {
+  if (!window.confirm("放弃此题浏览器中保存的人工草稿？")) return;
+  try {
+    localStorage.removeItem(draftKey(selectedId.value!));
+    markdown.value = "";
+    edited.value = false;
+    preview.value = undefined;
+  } catch {
+    error.value = "浏览器存储不可用";
+  }
+}
+function downloadMarkdown() {
+  saveBlob(
+    new Blob(
+      [
+        `> ${status.value}\n> 人工编辑稿不改变原始证据或服务器档案。\n\n${markdown.value}`,
+      ],
+      { type: "text/markdown;charset=utf-8" },
+    ),
+    (selected.value?.name || "writeup") + ".md",
+  );
+}
+async function exportZip() {
+  const p = await request<Preview>(root.value + "/writeup/preview");
+  preview.value = p;
+  const r = await fetch("/api" + root.value + "/export");
+  if (!r.ok) throw new Error("档案导出失败：" + r.status);
+  saveBlob(
+    await r.blob(),
+    `evidence-${r.headers.get("X-Dossier-Completeness") || p.completeness}-${selectedId.value}.zip`,
+  );
+  notice.value =
+    "ZIP 是服务器证据快照，含服务器初稿；人工编辑请另存 Markdown。完整性：" +
+    p.completeness;
+}
+async function copyCommand() {
+  await navigator.clipboard.writeText(operation.command);
+  notice.value = "已复制，请自行检查后在 PowerShell 中手动运行。";
+}
+async function verify() {
+  integrity.value = await request(root.value + "/integrity");
+}
+function print() {
+  window.print();
+}
+onMounted(() =>
+  guard("连接工作台", async () => {
+    await reload();
+    let cid: string | null = null;
+    try {
+      cid = localStorage.getItem("ctf-workbench:selected");
+    } catch {}
+    const c = challenges.value.find((c) => c.challenge_id === cid);
+    if (c) await select(c);
+  }),
+);
+onUnmounted(clearFile);
 </script>
 <template>
- <main><h1>CTF Agent Workbench</h1><p>本地证据工作台 · P0</p><p>模型通信与工具执行尚未在界面启用。Writeup 尚未生成。</p>
- <p v-if="error" role="alert">{{error}}</p>
- <form @submit.prevent="create"><label>题目名称 <input v-model="name" required maxlength="200"></label> <label>分类 <select v-model="category"><option v-for="c in categories" :key="c">{{c}}</option></select></label> <button>创建题目</button></form>
- <nav aria-label="题目"><button v-for="c in challenges" :key="c.challenge_id" @click="guarded(()=>select(c))">{{c.category}} · {{c.name}}</button></nav>
- <section v-if="selected"><h2>{{selected.name}}</h2><p>解题：{{selected.solve_status}} · Writeup：{{selected.writeup_status}}</p>
- <form @submit.prevent="addNote"><label>用户笔记 <textarea v-model="note" required maxlength="10000" /></label><label><input type="checkbox" v-model="retrospective">回溯笔记（记录当前录入时间）</label><button>追加笔记</button></form>
- <button @click="verify">校验事件链</button><output>{{integrity}}</output>
- <h3>事件时间线</h3><p v-if="!events.length">尚无记录。未记录的操作不能作为已执行证据。</p>
- <ol><li v-for="e in events" :key="e.event_id"><strong>#{{e.sequence}} {{e.event_type}} · {{e.actor}}</strong><p>{{e.occurred_at}} · {{e.event_id}}</p><pre>{{e.payload}}</pre><p>证据 ID：{{e.artifact_ids.join(', ')||'无'}} · 关联事件：{{e.event_refs.join(', ')||'无'}}</p><code>{{e.event_hash}}</code></li></ol></section>
- </main>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">LOCAL · EVIDENCE FIRST</span>
+      <h1>CTF <span>Workbench</span></h1>
+    </div>
+    <div class="context">
+      <strong>{{
+        project?.competition_name || project?.project_name || "尚未配置比赛"
+      }}</strong
+      ><span
+        >{{ selected?.name || "选择一道题目开始" }} ·
+        {{ busy || "人工执行模式" }}</span
+      >
+    </div>
+    <span class="pill">● 本地工作台 · 自动执行关闭</span>
+  </header>
+  <div v-if="error" class="banner error" role="alert">
+    {{ error }} <button @click="error = ''">关闭</button>
+  </div>
+  <div v-if="notice" class="banner" role="status">{{ notice }}</div>
+  <main class="layout" :aria-busy="!!busy">
+    <aside class="sidebar">
+      <div class="section-title">
+        比赛与题目
+        <button :disabled="!!busy" @click="guard('刷新', reload)">刷新</button>
+      </div>
+      <details :open="!project">
+        <summary>比赛项目设置</summary>
+        <form @submit.prevent="guard('保存项目', saveProject)">
+          <fieldset :disabled="!!busy">
+            <label
+              >项目名称<input
+                v-model="projectForm.project_name"
+                required
+                maxlength="200" /></label
+            ><label
+              >比赛名称<input
+                v-model="projectForm.competition_name"
+                maxlength="200" /></label
+            ><label
+              >比赛类型<input
+                v-model="projectForm.competition_type"
+                maxlength="100"
+                placeholder="练习 / 正式比赛" /></label
+            ><label
+              >规则概要与 AI 限制<textarea
+                v-model="projectForm.ai_policy_summary"
+                maxlength="4000"
+                placeholder="人工核对 PDF 后填写，不自动推断"
+              /></label
+            ><button class="primary">保存项目</button>
+          </fieldset>
+        </form>
+      </details>
+      <details>
+        <summary>共享比赛规则 PDF</summary>
+        <label
+          >上传规则（项目共享）<input
+            type="file"
+            accept=".pdf,application/pdf"
+            :disabled="!!busy || !project"
+            @change="sendFile('rules', chosen($event))" /></label
+        ><template v-if="project?.rules_sha256"
+          ><p>
+            {{ project.rules_filename }} ·
+            {{ sizeLabel(project.rules_size || 0) }}
+          </p>
+          <code>{{ project.rules_sha256 }}</code
+          ><a href="/api/project/rules/content" download
+            >下载规则原件</a
+          ></template
+        >
+        <p class="muted">规则由本项目全部题目共享。替换会更新项目配置。</p>
+      </details>
+      <nav aria-label="题目列表">
+        <button
+          v-for="c in challenges"
+          :key="c.challenge_id"
+          :class="['challenge', { active: c.challenge_id === selectedId }]"
+          :disabled="!!busy"
+          @click="guard('读取题目', () => select(c))"
+        >
+          <small>{{ c.category }} · {{ c.score ?? "—" }} 分</small
+          ><strong>{{ c.name }}</strong
+          ><small
+            >AI {{ c.ai_usage_level || "unknown" }} ·
+            {{ c.solve_status }}</small
+          >
+        </button>
+        <p v-if="!challenges.length" class="muted">还没有题目，先创建一道。</p>
+      </nav>
+      <details>
+        <summary>＋ 创建题目</summary>
+        <form @submit.prevent="guard('创建题目', createChallenge)">
+          <fieldset :disabled="!!busy">
+            <label
+              >题目名称<input
+                v-model="challengeForm.name"
+                required
+                maxlength="200"
+            /></label>
+            <div class="row">
+              <label
+                >分类<select v-model="challengeForm.category">
+                  <option v-for="c in categories" :key="c">{{ c }}</option>
+                </select></label
+              ><label
+                >分值<input
+                  v-model="challengeForm.score"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="1"
+              /></label>
+            </div>
+            <label>描述<textarea v-model="challengeForm.description" /></label
+            ><label
+              >AI 使用等级<select v-model="challengeForm.ai_usage_level">
+                <option value="unknown">未确认（禁用 Agent 流程）</option>
+                <option>A0</option>
+                <option>A1</option>
+                <option>A2</option>
+              </select></label
+            ><button class="primary">创建题目</button>
+          </fieldset>
+        </form>
+      </details>
+      <template v-if="selected"
+        ><div class="section-title">
+          证据索引 <span>{{ artifacts.length }}</span>
+        </div>
+        <button
+          v-for="a in artifacts"
+          :key="a.artifact_id"
+          class="file-button"
+          :disabled="!!busy"
+          @click="
+            guard('读取证据', () =>
+              showFile(
+                a.original_filename,
+                a.media_type,
+                root + '/artifacts/' + a.artifact_id + '/content',
+              ),
+            )
+          "
+        >
+          ▧ {{ a.original_filename
+          }}<small
+            >{{ a.evidence_kind || "other" }} · {{ sizeLabel(a.size) }}</small
+          >
+        </button></template
+      >
+      <details v-if="selected && imports.length" open>
+        <summary>题目文件树</summary>
+        <div v-for="i in imports" :key="i.import_id">
+          <small>{{ i.original_filename }}</small>
+          <button
+            v-for="f in i.files"
+            :key="f.relative_path"
+            class="file-button"
+            :disabled="!!busy"
+            @click="
+              guard('读取文件', () =>
+                showFile(f.relative_path, f.media_type, importPath(i, f)),
+              )
+            "
+          >
+            ↳ {{ f.relative_path }}
+          </button>
+        </div>
+      </details>
+    </aside>
+    <section class="workspace">
+      <template v-if="selected"
+        ><div class="workspace-title">
+          <div>
+            <span class="eyebrow"
+              >{{ selected.category }} / AI
+              {{ selected.ai_usage_level || "unknown" }}</span
+            >
+            <h2>{{ selected.name }}</h2>
+          </div>
+          <span class="pill">解题状态 {{ selected.solve_status }}</span>
+        </div>
+        <nav class="tabs" aria-label="工作区">
+          <button
+            v-for="t in [
+              ['overview', '题目与导入'],
+              ['files', '文件预览'],
+              ['operations', '运行记录'],
+              ['timeline', '事件时间线'],
+              ['writeup', 'Writeup'],
+            ]"
+            :key="t[0]"
+            :class="{ active: tab === t[0] }"
+            @click="tab = t[0]"
+          >
+            {{ t[1] }}
+          </button>
+        </nav>
+        <section v-show="tab === 'overview'" class="panel">
+          <h3>题目描述</h3>
+          <p class="description">
+            {{ selected.description || "尚未填写描述" }}
+          </p>
+          <div class="dropzone" @dragover.prevent @drop.prevent="drop">
+            <strong>导入题目 ZIP</strong>
+            <p>拖放 ZIP 或选择文件。服务器安全解压，不运行文件。</p>
+            <input
+              aria-label="题目 ZIP"
+              type="file"
+              accept=".zip,application/zip"
+              :disabled="!!busy"
+              @change="sendFile('zip', chosen($event))"
+            />
+          </div>
+          <div v-if="uploadStatus" role="status">
+            <progress :value="progress ?? undefined" max="100" />
+            {{ uploadStatus }} {{ progress === null ? "" : progress + "%" }}
+          </div>
+          <div v-for="i in imports" :key="i.import_id" class="import">
+            <h4>{{ i.original_filename }}</h4>
+            <p>
+              {{ i.extracted_file_count }} 个文件 ·
+              {{ sizeLabel(i.total_uncompressed_size) }} · 解压完成 / 未执行
+            </p>
+            <p v-for="w in i.warnings" :key="w" class="warning">{{ w }}</p>
+            <ul class="file-tree">
+              <li v-for="f in i.files" :key="f.relative_path">
+                <button
+                  :disabled="!!busy"
+                  @click="
+                    guard('读取导入文件', () =>
+                      showFile(f.relative_path, f.media_type, importPath(i, f)),
+                    )
+                  "
+                >
+                  {{ f.relative_path }}</button
+                ><small>{{ sizeLabel(f.size) }}</small
+                ><code>{{ f.sha256 }}</code
+                ><a :href="'/api' + importPath(i, f)" download>原件</a>
+              </li>
+            </ul>
+          </div>
+          <h3>上传脚本 / 证据</h3>
+          <p class="muted">保留原始字节。不修改截图，不回填服务器接收时间。</p>
+          <div class="row">
+            <label
+              >证据类型<select
+                v-model="evidence.evidence_kind"
+                aria-label="证据类型"
+              >
+                <option v-for="k in evidenceKinds" :key="k">{{ k }}</option>
+              </select></label
+            ><label
+              >拍摄时间（用户申报，可选）<input
+                v-model="evidence.capture_time_claim"
+                placeholder="ISO 8601，含时区"
+            /></label>
+          </div>
+          <input
+            aria-label="上传证据"
+            type="file"
+            :disabled="!!busy"
+            @change="sendFile('artifact', chosen($event))"
+          />
+          <article v-for="a in artifacts" :key="a.artifact_id" class="artifact">
+            <strong>{{ a.original_filename }}</strong
+            ><span
+              >{{ a.evidence_kind || "other" }} · {{ sizeLabel(a.size) }}</span
+            ><code>SHA256 {{ a.sha256 }}</code
+            ><small
+              >服务器接收 {{ a.ingested_at }} · 来源
+              {{ a.source_event_id }}</small
+            ><small v-if="a.capture_time_claim"
+              >用户申报拍摄时间
+              {{ a.capture_time_claim }}（非可信系统时间）</small
+            ><a
+              :href="'/api' + root + '/artifacts/' + a.artifact_id + '/content'"
+              download
+              >下载原件</a
+            >
+          </article>
+        </section>
+        <section v-show="tab === 'files'" class="panel">
+          <h3>{{ previewName || "选择左侧证据或导入清单中的文件" }}</h3>
+          <img
+            v-if="previewImage"
+            :src="previewImage"
+            class="preview-image"
+            alt="用户上传的原始证据预览"
+          />
+          <pre v-if="previewText" class="code-preview">{{ previewText }}</pre>
+          <p class="muted">
+            文本预览最大 1 MiB，图片 10 MiB；代码仅作文本展示。HTML / SVG
+            不渲染。
+          </p>
+        </section>
+        <section v-show="tab === 'operations'" class="panel">
+          <span class="pill">人工申报 · execution_verified=false</span>
+          <h3>记录一次本地运行</h3>
+          <p>复制命令 → 打开 PowerShell → 手动运行 → 上传截图 → 补录结果</p>
+          <p class="warning">
+            不要记录 API Key、密码或 Token。工作台不执行此命令。
+          </p>
+          <form @submit.prevent="guard('保存人工申报', record)">
+            <fieldset :disabled="!!busy">
+              <label
+                >实际执行命令<textarea
+                  v-model="operation.command"
+                  required
+                  maxlength="4000"
+                /></label
+              ><button
+                type="button"
+                :disabled="!operation.command"
+                @click="guard('复制命令', copyCommand)"
+              >
+                复制命令</button
+              ><label
+                >工作目录<input
+                  v-model="operation.working_directory"
+                  required
+                  maxlength="500" /></label
+              ><label
+                >执行目的<input
+                  v-model="operation.purpose"
+                  required
+                  maxlength="500" /></label
+              ><label
+                >退出码（可选）<input
+                  v-model="operation.exit_code"
+                  type="number"
+                  step="1" /></label
+              ><label
+                >运行结果说明<textarea
+                  v-model="operation.result_note"
+                  required
+                  maxlength="4000"
+                />
+              </label>
+              <div class="row">
+                <label
+                  >开始时间（用户申报）<input
+                    v-model="operation.started_at_claim"
+                    placeholder="ISO 8601，含时区" /></label
+                ><label
+                  >结束时间（用户申报）<input
+                    v-model="operation.finished_at_claim"
+                    placeholder="ISO 8601，含时区"
+                /></label>
+              </div>
+              <button class="primary">保存人工申报</button>
+            </fieldset>
+          </form>
+          <details>
+            <summary>Docker 命令建议（不执行）</summary>
+            <pre>
+docker build -t ctf-local .
+docker run --rm --network none ctf-local</pre
+            >
+            <p>仅适用于已检查并信任的 Dockerfile；自行核对挂载、网络与规则。</p>
+          </details>
+        </section>
+        <section v-show="tab === 'timeline'" class="panel">
+          <div class="section-title">
+            <h3>事件时间线</h3>
+            <button :disabled="!!busy" @click="guard('校验事件链', verify)">
+              校验事件链
+            </button>
+          </div>
+          <p v-if="integrity" :class="integrity.valid ? 'success' : 'error'">
+            {{
+              integrity.valid
+                ? "事件链一致（不证明操作或截图真实性）"
+                : "事件链异常：" + integrity.earliest_affected_sequence
+            }}
+          </p>
+          <p v-if="!events.length">
+            尚无事件，未记录的操作不能作为已执行事实。
+          </p>
+          <article v-for="e in events" :key="e.event_id" class="event">
+            <small
+              >#{{ e.sequence }} · {{ e.occurred_at }} · {{ e.actor }}</small
+            >
+            <h4>{{ eventLabel(e) }}</h4>
+            <p>{{ e.event_type }} · {{ e.event_id }}</p>
+            <pre>{{ JSON.stringify(e.payload, null, 2) }}</pre>
+            <p>关联证据：{{ e.artifact_ids.join(", ") || "无" }}</p>
+            <code>{{ e.event_hash }}</code>
+          </article>
+        </section>
+        <section v-show="tab === 'writeup'" class="panel writeup">
+          <div class="no-print">
+            <h3>Writeup 工作区</h3>
+            <p>{{ status }}</p>
+            <p class="muted">
+              草稿仅保存在此浏览器。ZIP 仍含服务器初稿；人工编辑请另存
+              Markdown。AI 建议不得改写为执行事实。
+            </p>
+            <div class="actions">
+              <button :disabled="!!busy" @click="guard('生成初稿', generate)">
+                生成服务器初稿</button
+              ><button :disabled="!!busy" @click="discard">放弃本地草稿</button
+              ><button :disabled="!markdown" @click="downloadMarkdown">
+                下载 Markdown</button
+              ><button :disabled="!markdown" @click="print">
+                打印 / 保存 PDF</button
+              ><button :disabled="!!busy" @click="guard('导出档案', exportZip)">
+                下载证据 ZIP
+              </button>
+            </div>
+            <ul v-if="preview">
+              <li
+                v-for="m in [
+                  ...preview.missing_requirements,
+                  ...preview.warnings,
+                ]"
+                :key="m"
+                class="warning"
+              >
+                {{ m }}
+              </li>
+            </ul>
+            <label
+              >Markdown 人工编辑<textarea
+                class="markdown-editor"
+                v-model="markdown"
+                @input="edit"
+                spellcheck="false"
+              />
+            </label>
+          </div>
+          <div class="print-only">
+            <h1>{{ selected.name }} · Writeup</h1>
+            <p>{{ status }}</p>
+            <pre>{{ markdown }}</pre>
+          </div>
+        </section>
+      </template>
+      <section v-else class="empty">
+        <span class="eyebrow">YOUR NEXT CHALLENGE</span>
+        <h2>每一个结论，都有证据可循。</h2>
+        <p>配置规则，创建题目，导入附件。所有程序由你在本地手动运行。</p>
+        <p>从左侧「＋ 创建题目」开始。</p>
+      </section>
+    </section>
+    <aside class="inspector">
+      <span class="eyebrow">PROCESS & PROVENANCE</span>
+      <h3>分析与记录</h3>
+      <div class="notice">
+        <strong>人工执行模式</strong>
+        <p>工具执行、模型联网和自动 Flag 提交均未启用。</p>
+      </div>
+      <div v-if="selected" class="notice">
+        <strong>AI {{ selected.ai_usage_level || "unknown" }}</strong>
+        <p
+          v-if="
+            !selected.ai_usage_level || selected.ai_usage_level === 'unknown'
+          "
+        >
+          规则未确认，Agent 流程禁用。
+        </p>
+        <p v-else>等级不自动授予能力；当前仅展示已有建议。</p>
+      </div>
+      <p class="muted">
+        {{ project?.ai_policy_summary || "规则概要尚未填写，请先核对规则。" }}
+      </p>
+      <h4>Agent 建议（非执行）</h4>
+      <p v-if="!suggestions.length" class="muted">
+        暂无已记录建议，不生成演示分析。
+      </p>
+      <article v-for="e in suggestions" :key="e.event_id" class="suggestion">
+        <small>{{ e.occurred_at }} · {{ e.event_id }}</small>
+        <pre>{{ JSON.stringify(e.payload, null, 2) }}</pre>
+      </article>
+      <template v-if="selected"
+        ><h4>选手笔记 / 解题思路</h4>
+        <form @submit.prevent="guard('保存笔记', addNote)">
+          <fieldset :disabled="!!busy">
+            <textarea
+              aria-label="选手笔记"
+              v-model="note"
+              required
+              maxlength="10000"
+              placeholder="人工填写思路，保留事件与证据 ID"
+            /><label class="checkbox"
+              ><input
+                type="checkbox"
+                v-model="retrospective"
+              />回溯补录（记录当前录入时间）</label
+            ><button :disabled="!note">追加笔记</button>
+          </fieldset>
+        </form></template
+      >
+    </aside>
+  </main>
 </template>
-<style>body{font-family:system-ui;background:#101724;color:#e2e8f0;margin:0}main{max-width:960px;margin:40px auto;padding:24px}button,input,select,textarea{font:inherit;padding:8px;margin:6px;border-radius:5px}button{cursor:pointer}nav{margin:24px 0}li{padding:16px;border-bottom:1px solid #43516a}pre,code{white-space:pre-wrap;overflow-wrap:anywhere}textarea{display:block;width:90%}output{display:block}p[role=alert]{color:#fca5a5}</style>
