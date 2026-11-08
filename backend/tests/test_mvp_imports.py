@@ -67,6 +67,8 @@ IMPORT_RECORD_FIELDS = {
     "warnings",
     "created_at",
     "manifest_sha256",
+    "manifest_verified",
+    "integrity_error",
 }
 IMPORT_RESULT_FIELDS = IMPORT_RECORD_FIELDS | {
     "files",

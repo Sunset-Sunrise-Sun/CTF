@@ -202,7 +202,18 @@ def upload_artifact(
 def add_note(client: TestClient, cid: str) -> dict:
     response = client.post(
         f"/api/challenges/{cid}/notes",
-        json={"text": APPROACH_TEXT},
+        json={"text": APPROACH_TEXT, "kind": "approach"},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def add_ordinary_note(
+    client: TestClient, cid: str, text: str = "SYNTH-ORDINARY-NOTE"
+) -> dict:
+    response = client.post(
+        f"/api/challenges/{cid}/notes",
+        json={"text": text},
     )
     assert response.status_code == 201
     return response.json()
@@ -496,7 +507,12 @@ def test_writeup_preview_reports_precise_missing_requirements(
     body = preview_body(client, cid)
 
     assert body["completeness"] == "incomplete"
-    assert body["missing_requirements"] == ["flag_capture", "platform_verification"]
+    assert body["missing_requirements"] == [
+        "core_code",
+        "execution_evidence",
+        "flag_capture",
+        "platform_verification",
+    ]
     assert body["event_count"] == 2
     assert body["artifact_count"] == 0
 
@@ -571,10 +587,11 @@ def test_export_archive_contains_all_required_entries(
 
     members = read_members(response)
     names = set(members)
+    import_prefix = f"challenge/imports/{ctx['import']['import_id']}"
     for required in (
-        "challenge/original.zip",
-        "challenge/extracted/README.txt",
-        "challenge/extracted/src/solve.py",
+        f"{import_prefix}/original.zip",
+        f"{import_prefix}/extracted/README.txt",
+        f"{import_prefix}/extracted/src/solve.py",
         "scripts/solve.py",
         "evidence/analysis/analysis_notes.txt",
         "evidence/execution/execution.png",
@@ -685,14 +702,15 @@ def test_export_bytes_match_uploaded_synthetic_evidence(
     markdown = preview_body(client, cid)["markdown"]
 
     members = read_members(export_response(client, cid))
+    import_prefix = f"challenge/imports/{ctx['import']['import_id']}"
 
-    original = members["challenge/original.zip"]
+    original = members[f"{import_prefix}/original.zip"]
     assert original == ZIP_BYTES
     assert sha256_hex(original) == ctx["import"]["original_artifact"]["sha256"]
 
     with zipfile.ZipFile(io.BytesIO(ZIP_BYTES)) as source:
         for name, data in ZIP_FILES.items():
-            extracted = members[f"challenge/extracted/{name}"]
+            extracted = members[f"{import_prefix}/extracted/{name}"]
             assert extracted == data
             assert extracted == source.read(name)
 
@@ -747,7 +765,7 @@ def test_export_incomplete_dossier_is_marked_incomplete(
 
     members = read_members(response)
     assert "INCOMPLETE.txt" in members
-    assert "challenge/original.zip" not in members
+    assert not any(name.startswith("challenge/imports/") for name in members)
     assert json.loads(members["logs/events.json"]) == []
 
     manifest = json.loads(members["manifest.json"])
@@ -760,7 +778,8 @@ def test_export_incomplete_dossier_is_marked_incomplete(
         "platform_verification",
         "ai_usage_level",
     } <= missing
-    assert "challenge/original.zip" in manifest["missing_files"]
+    assert "challenge/imports" in manifest["missing_files"]
+    assert manifest["imports"] == []
     assert manifest["project"] is None
     assert manifest["tool_execution_enabled"] is False
     assert manifest["ai_suggestions_are_not_actions"] is True
@@ -911,7 +930,8 @@ def test_writeup_and_export_end_to_end_workflow(data_root: Path) -> None:
         for name, digest in sums.items():
             assert sha256_hex(members[name]) == digest, name
 
-        assert members["challenge/original.zip"] == ZIP_BYTES
+        import_prefix = f"challenge/imports/{import_body['import_id']}"
+        assert members[f"{import_prefix}/original.zip"] == ZIP_BYTES
         assert members["challenge/rules/rules.pdf"] == RULE_BYTES
         assert members["writeup.md"].decode("utf-8") == preview["markdown"]
         assert members["logs/events.json"]
