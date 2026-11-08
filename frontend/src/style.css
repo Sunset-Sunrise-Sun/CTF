@@ -519,3 +519,44 @@ progress {
   font-size: 12px;
   color: #576c79;
 }
+
+
+.ai-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  margin: 14px 0 20px;
+  background: #f4f7f9;
+  border: 1px solid #dce5ec;
+  border-radius: 8px;
+}
+.ai-status small {
+  flex-basis: 100%;
+}
+.ai-status button {
+  margin-left: auto;
+}
+.ai-panel .consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #34485c;
+  line-height: 1.6;
+}
+.ai-panel .consent input {
+  width: auto;
+  margin-top: 3px;
+}
+.ai-answer {
+  margin-top: 24px;
+  padding: 18px;
+  background: #f7fafb;
+  border: 1px solid #dce5ec;
+  border-radius: 8px;
+}
+.ai-answer pre {
+  max-height: 65vh;
+  white-space: pre-wrap;
+}
