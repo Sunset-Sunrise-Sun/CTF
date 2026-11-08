@@ -241,7 +241,7 @@ async function askAI() {
     }>(root.value + "/ai/chat", {
       question: aiQuestion.value.trim(),
       confirm_external_processing: true,
-    }, "POST");
+    }, "POST", "/api", 120000);
     aiAnswer.value = result.answer;
     aiQuestion.value = "";
     aiConsent.value = false;
