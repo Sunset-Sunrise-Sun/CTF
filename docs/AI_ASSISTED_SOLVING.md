@@ -38,6 +38,15 @@ $env:CTF_MODEL_BASE_URL = "https://api.deepseek.com"
 
 脚本会通过 `Read-Host -AsSecureString` 隐藏输入 API Key，仅在当前 PowerShell 进程及其后端子进程中设置环境变量；不会写入仓库、配置文件或用户级永久环境变量。脚本要求数据目录已存在、端口未被占用，并且只绑定 `127.0.0.1`。如果 8002 仍由旧后端占用，脚本会拒绝启动，不会自动停止任何进程。
 
+前端在另一个 PowerShell 窗口启动，使用专门指向 8002 的 Vite 配置（不会沿用开发默认的 8000 代理）：
+
+```powershell
+Set-Location .\frontend
+npm run dev -- --config vite.a00.config.ts --host 127.0.0.1 --port 5174 --strictPort
+```
+
+打开 `http://127.0.0.1:5174/`。该配置只绑定本机回环地址；若 5174 已被占用会直接失败，不会自动换端口。
+
 关闭联网：
 
 ```powershell
