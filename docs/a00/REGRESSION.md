@@ -1,5 +1,7 @@
 # A00 实际回归命令与输出
 
+> **历史记录说明（2026-11-08）：** 以下命令与输出对应早期 A00 整合 HEAD `e581144c68bf05932334decc4babc9b61a764bb5`，不是当前 MVP 整合 HEAD 的测试。当前 HEAD 的 GitHub Actions 结果见 [A00/MVP 整合验收补充记录](../A00_MVP_INTEGRATION_ACCEPTANCE_20261108.md)。
+
 整合 HEAD：`e581144c68bf05932334decc4babc9b61a764bb5`。
 
 运行环境变量：`CTF_RUN_LIVE_MODEL=0`、`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`PYTHONDONTWRITEBYTECODE=1`、`PYTHONIOENCODING=utf-8`。没有打印或读取凭证。前端 npm install 只安装固定 lockfile 的开发构建依赖，不是模型网络调用。
