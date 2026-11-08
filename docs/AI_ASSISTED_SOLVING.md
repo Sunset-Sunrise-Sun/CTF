@@ -32,6 +32,15 @@ $env:CTF_MODEL_BASE_URL = "https://api.deepseek.com"
 Remove-Item Env:CTF_MODEL_NETWORK_ENABLED -ErrorAction SilentlyContinue
 ```
 
+真实发送题目内容前，建议先用合成请求单独验证 API Key 与网络连通性：
+
+```powershell
+cd backend
+python -m app.ai_smoke_cli --allow-model-network
+```
+
+该命令要求联网环境变量已开启，并再次要求显式命令行确认；只发送固定的合成 OK 提示，不发送题目内容，记录写入单独的 `model-smoke.sqlite3`，不打印模型回答。成功后再打开工作台使用 AI 面板。
+
 配置通过 `GET /api/model/status` 查看。该接口只返回联网开关、模型 ID 和凭证是否存在，不返回 Key，也不代表真实 API 已经联通。首次请求才会进行真实 Provider 通信。
 
 ## 比赛规则
