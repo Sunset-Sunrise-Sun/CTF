@@ -4,7 +4,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.ai_assistant import redact_sensitive, collect_challenge_context
+from app.ai_assistant import redact_sensitive, collect_challenge_context, static_binary_summary
 from app.providers import DeepSeekAdapter, ProviderConfig
 from app.models import Challenge
 
@@ -129,3 +129,17 @@ def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
         )
         assert "hello from evidence" in context
         assert included == ["evidence/notes.txt"]
+
+
+def test_static_binary_summary_extracts_metadata_without_execution():
+    data = bytearray(20)
+    data[:4] = bytes.fromhex("7f454c46")
+    data[4] = 2
+    data[5] = 1
+    data[18:20] = (62).to_bytes(2, "little")
+    data.extend(b" SYNTHETIC_BINARY_MARKER ")
+    summary = static_binary_summary(bytes(data))
+    assert "Format: ELF" in summary
+    assert "Class: ELF64" in summary
+    assert "Machine: 62" in summary
+    assert "SYNTHETIC_BINARY_MARKER" in summary
