@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.ai_assistant import redact_sensitive, collect_challenge_context
+from app.providers import DeepSeekAdapter, ProviderConfig
 from app.models import Challenge
 
 
@@ -28,14 +30,30 @@ def test_ai_chat_requires_explicit_consent_and_server_opt_in(tmp_path, monkeypat
         assert client.get("/api/health").json()["model_network_enabled"] is False
 
 
-def test_ai_chat_records_only_unverified_suggestion(tmp_path, monkeypatch):
+def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monkeypatch):
     monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+    captured = {}
 
-    async def fake_ask(**kwargs):
-        assert kwargs["question"] == "Explain the synthetic challenge"
-        return "建议先检查输入点。", "deepseek", "deepseek-chat", ["app.py"]
+    def handler(request):
+        captured["authorization"] = request.headers.get("authorization")
+        captured["body"] = request.read().decode("utf-8")
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "建议先检查输入点。"}}]},
+        )
 
-    monkeypatch.setattr("app.main.ask_challenge", fake_ask)
+    config = ProviderConfig(
+        provider_id="deepseek",
+        adapter="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    monkeypatch.setattr(
+        "app.ai_assistant.build_deepseek_provider",
+        lambda: DeepSeekAdapter(config, httpx.MockTransport(handler)),
+    )
     with TestClient(create_app(tmp_path / "data")) as client:
         challenge = client.post(
             "/api/challenges",
@@ -52,10 +70,16 @@ def test_ai_chat_records_only_unverified_suggestion(tmp_path, monkeypatch):
         assert response.status_code == 201
         result = response.json()
         assert result["verification_status"] == "unverified_suggestion"
-        assert result["included_files"] == ["app.py"]
-        event = client.get("/api/challenges/" + cid + "/events").json()[-1]
-        assert event["event_type"] == "agent_message"
-        assert event["payload"]["question"] == "Explain the synthetic challenge"
+        assert result["included_files"] == []
+        assert captured["authorization"] == "Bearer synthetic-test-key"
+        assert "Synthetic Web" in captured["body"]
+        assert "Explain the synthetic challenge" in captured["body"]
+        events = client.get("/api/challenges/" + cid + "/events").json()
+        assert [event["event_type"] for event in events[-2:]] == [
+            "model_call", "agent_message"
+        ]
+        assert events[-1]["payload"]["question"] == "Explain the synthetic challenge"
+        assert events[-1]["payload"]["execution_performed"] is False
 
 
 def test_ai_chat_blocks_unknown_and_a0(tmp_path, monkeypatch):
