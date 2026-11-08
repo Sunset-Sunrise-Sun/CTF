@@ -33,6 +33,9 @@ test("AI assistant stays safely disabled until server opt-in and per-request con
   await page.getByRole("button", { name: "AI 解题助手", exact: true }).click();
   await expect(page.getByRole("heading", { name: "AI 辅助解题 · DeepSeek" })).toBeVisible();
   await expect(page.getByText("服务器未开启模型联网")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /测试 API 连接/ }),
+  ).toBeDisabled();
   await page.getByLabel("向 AI 提问").fill("请分析这个合成题目。");
   await page.getByLabel(/我确认将本题描述/).check();
   await expect(
