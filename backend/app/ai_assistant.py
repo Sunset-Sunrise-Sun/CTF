@@ -210,7 +210,7 @@ async def ask_challenge(
     response = await recorded_complete(
         provider, request, store, challenge.challenge_id
     )
-    answer = response.text.strip()
+    answer = _redact(response.text.strip())
     if not answer:
         raise ProviderError("empty_response")
     return answer, response.provider_id, response.model_id, included
