@@ -104,6 +104,9 @@ const selectedId = computed(() => selected.value?.challenge_id),
 const suggestions = computed(() =>
     events.value.filter((e) => eventLabel(e).startsWith("ai_suggestion")),
   ),
+  aiHistory = computed(() =>
+    events.value.filter((e) => e.event_type === "agent_message"),
+  ),
   status = computed(() => completeness(preview.value, edited.value));
 let previewVersion = 0;
 function clearFile() {
@@ -848,9 +851,16 @@ docker run --rm --network none ctf-local</pre
           <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
             {{ aiBusy ? '正在请求模型…' : '发送问题并获取分析' }}
           </button>
-          <section v-if="aiAnswer" class="ai-answer">
-            <h4>最新 AI 分析（未验证）</h4>
-            <pre>{{ aiAnswer }}</pre>
+          <section v-if="aiHistory.length" class="ai-answer">
+            <h4>本题 AI 对话记录（均为未验证建议）</h4>
+            <article v-for="turn in aiHistory" :key="turn.event_id" class="ai-turn">
+              <small>{{ turn.occurred_at }} · {{ turn.payload.model_id }}</small>
+              <strong>你：</strong>
+              <p>{{ turn.payload.question }}</p>
+              <strong>AI：</strong>
+              <pre>{{ turn.payload.answer }}</pre>
+              <small>关联事件 #{{ turn.sequence }} · 未执行</small>
+            </article>
             <p class="muted">请自行检查建议，手动执行后再将真实结果和证据补录到工作台。</p>
           </section>
         </section>
