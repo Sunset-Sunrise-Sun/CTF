@@ -106,7 +106,7 @@ def build_deepseek_provider() -> DeepSeekAdapter:
             base_url=os.environ.get(
                 "CTF_MODEL_BASE_URL", "https://api.deepseek.com"
             ).rstrip("/"),
-            model_id=os.environ.get("CTF_MODEL_ID", "deepseek-chat"),
+            model_id=os.environ.get("CTF_MODEL_ID", "deepseek-flash"),
             api_key_env=os.environ.get("CTF_MODEL_API_KEY_ENV", "DEEPSEEK_API_KEY"),
             timeout_seconds=float(os.environ.get("CTF_MODEL_TIMEOUT_SECONDS", "90")),
         )
