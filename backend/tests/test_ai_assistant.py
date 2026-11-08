@@ -235,3 +235,46 @@ def test_ai_chat_redacts_secrets_before_provider_and_audit(tmp_path, monkeypatch
         serialized = str(events)
         assert secret not in serialized
         assert "[REDACTED_SECRET]" in serialized
+
+
+def test_ai_chat_second_turn_receives_first_turn_as_recorded_context(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+    requests = []
+
+    def handler(request):
+        body = request.read().decode("utf-8")
+        requests.append(body)
+        answer = "第一轮：先确认输入格式。" if len(requests) == 1 else "第二轮：根据刚才结果继续验证。"
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": answer}}]},
+        )
+
+    config = ProviderConfig(
+        provider_id="deepseek",
+        adapter="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    monkeypatch.setattr(
+        "app.ai_assistant.build_deepseek_provider",
+        lambda: DeepSeekAdapter(config, httpx.MockTransport(handler)),
+    )
+    with TestClient(create_app(tmp_path / "data")) as client:
+        challenge = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic multi-turn", "category": "Crypto", "ai_usage_level": "A2"},
+        ).json()
+        cid = challenge["challenge_id"]
+        for question in ("第一轮问题：分析密文格式", "第二轮问题：继续分析"):
+            response = client.post(
+                f"/api/challenges/{cid}/ai/chat",
+                json={"question": question, "confirm_external_processing": True},
+            )
+            assert response.status_code == 201
+        assert len(requests) == 2
+        assert "第一轮问题：分析密文格式" in requests[1]
+        assert "第一轮：先确认输入格式。" in requests[1]
+        assert "第二轮问题：继续分析" in requests[1]
