@@ -37,6 +37,8 @@ from .models import (
     ToolStarted,
     Verification,
     Writeup,
+    WriteupDraft,
+    WriteupDraftSave,
     WriteupPreview,
     WriteupStatement,
 )
@@ -83,6 +85,8 @@ MODELS = (
     ImportRecord,
     ImportDetail,
     ImportResult,
+    WriteupDraft,
+    WriteupDraftSave,
     WriteupPreview,
 )
 

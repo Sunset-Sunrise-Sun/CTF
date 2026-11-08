@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
-from pydantic import BaseModel, ConfigDict, Field
+
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 
 def uid() -> str:
@@ -196,6 +197,28 @@ class WriteupPreview(Model):
     artifact_count: int = Field(ge=0)
     completeness: Literal["complete", "incomplete"]
     warnings: list[str] = Field(default_factory=list)
+
+
+class WriteupDraft(Model):
+    """A human-edited Writeup saved by the player for one challenge.
+
+    This is intentionally distinct from the generated preview: content is
+    player-authored, never represented as an observed execution or AI output.
+    """
+
+    challenge_id: str
+    content: str
+    version: int = Field(ge=1)
+    sha256: str
+    size: int = Field(ge=0)
+    saved_at: str
+    is_human_draft: Literal[True] = True
+
+
+class WriteupDraftSave(Model):
+    content: StrictStr = Field(max_length=4_000_000)
+    # StrictInt rejects strings, floats and booleans; negative values fail ge=0.
+    base_version: StrictInt = Field(ge=0)
 
 
 class ToolProposal(Model):

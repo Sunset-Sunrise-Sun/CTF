@@ -50,9 +50,20 @@ from .models import (
     NoteCreate,
     Project,
     ProjectUpdate,
+    WriteupDraft,
+    WriteupDraftSave,
     WriteupPreview,
 )
 from .project import ProjectNotConfiguredError, ProjectStore, ProjectValidationError
+from .writeups import (
+    DEFAULT_MAX_WRITEUP_BYTES,
+    WriteupConflictError,
+    WriteupIntegrityError,
+    WriteupNotFoundError,
+    WriteupStore,
+    WriteupTooLargeError,
+    WriteupValidationError,
+)
 from .store import Store
 from .workspace import Workspace
 from .writeup import build_writeup_preview
@@ -130,6 +141,83 @@ async def _artifact_body_too_large(request, exc):
     return JSONResponse({"detail": "Upload exceeds the size limit"}, status_code=413)
 
 
+WRITEUP_JSON_OVERHEAD_BYTES = 64 * 1024
+
+
+class WriteupBodyLimitMiddleware:
+    """Cap Writeup draft PUT bodies by declared and actual received bytes.
+
+    The 1 MiB limit applies to the UTF-8 content, not the JSON envelope, so a
+    small fixed overhead is allowed.  A chunked request has no Content-Length,
+    so the body is buffered up to the cap before routing and replayed to the
+    application.  Exceeding the cap is answered with 413 directly: raising an
+    exception during body parsing would be converted to a generic 400 by
+    FastAPI's request body reader.
+    """
+
+    def __init__(self, app, max_body_bytes: int):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope.get("type") != "http"
+            or scope.get("method") != "PUT"
+            or not self._is_writeup_draft(scope.get("path", ""))
+        ):
+            await self.app(scope, receive, send)
+            return
+        declared = _declared_content_length(scope)
+        if declared is not None and declared > self.max_body_bytes:
+            response = JSONResponse(
+                {"detail": "Writeup request body exceeds the size limit"},
+                status_code=413,
+            )
+            await response(scope, receive, send)
+            return
+        chunks: list[bytes] = []
+        received = 0
+        while True:
+            message = await receive()
+            if message.get("type") == "http.disconnect":
+                sent_disconnect = False
+
+                async def disconnect_receive():
+                    nonlocal sent_disconnect
+                    sent_disconnect = True
+                    return {"type": "http.disconnect"}
+
+                await self.app(scope, disconnect_receive, send)
+                return
+            chunk = message.get("body", b"")
+            received += len(chunk)
+            if received > self.max_body_bytes:
+                response = JSONResponse(
+                    {"detail": "Writeup request body exceeds the size limit"},
+                    status_code=413,
+                )
+                await response(scope, receive, send)
+                return
+            chunks.append(chunk)
+            if not message.get("more_body", False):
+                break
+        body = b"".join(chunks)
+        replayed = False
+
+        async def replay_receive():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.disconnect"}
+
+        await self.app(scope, replay_receive, send)
+
+    @staticmethod
+    def _is_writeup_draft(path: str) -> bool:
+        return path.startswith("/api/challenges/") and path.endswith("/writeup/draft")
+
+
 def _positive(configured: int | None, env_name: str, default: int) -> int:
     if configured is None:
         raw = os.environ.get(env_name)
@@ -180,6 +268,7 @@ def create_app(
     data_root: Path | None = None,
     max_artifact_bytes: int | None = None,
     rules_max_bytes: int | None = None,
+    max_writeup_bytes: int | None = None,
     import_limits: ImportLimits | None = None,
 ) -> FastAPI:
     root = data_root or Path(os.environ.get("CTF_DATA_DIR", "../.local-data"))
@@ -188,6 +277,9 @@ def create_app(
     )
     rules_limit = _positive(
         rules_max_bytes, "CTF_RULES_MAX_BYTES", DEFAULT_RULES_MAX_BYTES
+    )
+    writeup_limit = _positive(
+        max_writeup_bytes, "CTF_MAX_WRITEUP_BYTES", DEFAULT_MAX_WRITEUP_BYTES
     )
     import_budget = import_limits or ImportLimits.from_env()
     max_upload_body = max(artifact_limit, rules_limit) + MULTIPART_OVERHEAD_BYTES
@@ -201,17 +293,23 @@ def create_app(
         )
         rules_store = ArtifactStore(root / "artifacts", max_bytes=rules_limit)
         app.state.project = ProjectStore(root, rules_store)
+        app.state.writeups = WriteupStore(root / "writeups", max_bytes=writeup_limit)
         app.state.import_limits = import_budget
         yield
 
-    app = FastAPI(title="CTF Agent Workbench", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="CTF Agent Workbench", version="0.3.0", lifespan=lifespan)
     app.state.max_artifact_bytes = artifact_limit
     app.state.rules_max_bytes = rules_limit
+    app.state.max_writeup_bytes = writeup_limit
     app.state.import_limits = import_budget
     app.state.artifact_lock = threading.Lock()
     app.add_middleware(
         ArtifactBodyLimitMiddleware,
         max_body_bytes=max_upload_body,
+    )
+    app.add_middleware(
+        WriteupBodyLimitMiddleware,
+        max_body_bytes=writeup_limit + WRITEUP_JSON_OVERHEAD_BYTES,
     )
     app.add_exception_handler(ArtifactBodyTooLarge, _artifact_body_too_large)
 
@@ -245,6 +343,7 @@ def create_app(
             "model_network_enabled": False,
             "artifact_max_bytes": app.state.max_artifact_bytes,
             "rules_max_bytes": app.state.rules_max_bytes,
+            "writeup_max_bytes": app.state.max_writeup_bytes,
             "manual_execution_mode": "manual_external",
             "import_limits": {
                 "max_files": limits.max_files,
@@ -714,6 +813,48 @@ def create_app(
         challenge = exists(cid)
         return build_preview(cid, challenge)
 
+    @app.get("/api/challenges/{cid}/writeup/draft", response_model=WriteupDraft)
+    def get_writeup_draft(cid: str):
+        exists(cid)
+        try:
+            return app.state.writeups.load(cid)
+        except WriteupNotFoundError:
+            raise HTTPException(404, "Writeup draft not found") from None
+        except WriteupIntegrityError as error:
+            raise HTTPException(409, str(error)) from None
+
+    @app.put("/api/challenges/{cid}/writeup/draft", response_model=WriteupDraft)
+    def save_writeup_draft(cid: str, body: WriteupDraftSave, response: Response):
+        exists(cid)
+        try:
+            draft = app.state.writeups.save(cid, body)
+        except WriteupTooLargeError as error:
+            raise HTTPException(413, str(error)) from None
+        except WriteupValidationError as error:
+            raise HTTPException(422, str(error)) from None
+        except WriteupIntegrityError as error:
+            raise HTTPException(
+                409,
+                "Saved writeup cannot be updated safely: " + str(error),
+            ) from None
+        except WriteupConflictError as error:
+            raise HTTPException(
+                409,
+                detail={
+                    "message": (
+                        "Writeup version conflict; reload the latest draft "
+                        "before saving"
+                    ),
+                    "current": (
+                        error.current.model_dump()
+                        if error.current is not None
+                        else None
+                    ),
+                },
+            ) from None
+        response.status_code = 201 if draft.version == 1 else 200
+        return draft
+
     @app.get("/api/challenges/{cid}/export")
     def export_dossier(cid: str):
         challenge = exists(cid)
@@ -722,6 +863,15 @@ def create_app(
         events = app.state.store.events(cid)
         integrity = app.state.store.verify(cid)
         manifests, import_issues = scan_imports(workspace_challenge, events, cid)
+        human_writeup: WriteupDraft | None = None
+        writeup_integrity_error: str | None = None
+        try:
+            human_writeup = app.state.writeups.load(cid)
+        except WriteupNotFoundError:
+            human_writeup = None
+        except (WriteupIntegrityError, WriteupValidationError) as error:
+            human_writeup = None
+            writeup_integrity_error = str(error)
         if not integrity.get("valid"):
             import_issues = [
                 ImportIssue(
@@ -745,7 +895,9 @@ def create_app(
                 import_issues=import_issues,
                 artifact_store=app.state.artifacts,
                 workspace_challenge=workspace_challenge,
-                writeup_markdown=preview.markdown,
+                generated_writeup_markdown=preview.markdown,
+                human_writeup=human_writeup,
+                writeup_integrity_error=writeup_integrity_error,
                 completeness=preview.completeness,
                 missing_requirements=preview.missing_requirements,
                 writeup_warnings=preview.warnings,

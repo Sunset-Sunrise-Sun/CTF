@@ -29,10 +29,14 @@ from .artifacts import (
     ArtifactStore,
 )
 from .imports import ImportIssue, ImportManifest
-from .models import ArtifactView, Challenge, Event, Project, now
+from .models import ArtifactView, Challenge, Event, Project, WriteupDraft, now
 
 _EXPORT_DIR = ".exports"
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+WRITEUP_NO_HUMAN_NOTE = "> 注意：尚未保存人工稿，本文件为服务器生成的初稿。\n\n"
+WRITEUP_INTEGRITY_NOTE = (
+    "> 注意：已保存的人工稿完整性校验失败，本文件为服务器生成的初稿。\n\n"
+)
 _KIND_DIRECTORIES = {
     "analysis": "evidence/analysis",
     "execution": "evidence/execution",
@@ -113,7 +117,10 @@ def _event_summary(event: Event) -> str:
 
 
 def _ai_disclosure(
-    challenge: Challenge, project: Project | None, completeness: str
+    challenge: Challenge,
+    project: Project | None,
+    completeness: str,
+    writeup_source: str,
 ) -> str:
     lines = [
         "# AI 使用披露",
@@ -137,6 +144,7 @@ def _ai_disclosure(
         "- 所有运行记录均为选手在工作台之外手动执行后在本地补录，"
         "标记为 execution_mode=manual_external、execution_verified=false。"
     )
+    lines.append(f"- 最终 Writeup 来源：{writeup_source}")
     lines.append(f"- 档案完整性：{completeness}")
     lines.append("")
     return "\n".join(lines)
@@ -153,7 +161,9 @@ def build_export_archive(
     import_issues: list[ImportIssue],
     artifact_store: ArtifactStore,
     workspace_challenge: Path,
-    writeup_markdown: str,
+    generated_writeup_markdown: str,
+    human_writeup: WriteupDraft | None,
+    writeup_integrity_error: str | None,
     completeness: str,
     missing_requirements: list[str],
     writeup_warnings: list[str],
@@ -170,6 +180,27 @@ def build_export_archive(
     import_statuses: list[dict] = []
     import_export_error = False
     manifests = sorted(manifests, key=lambda item: (item.created_at, item.import_id))
+
+    generated_writeup_bytes = generated_writeup_markdown.encode("utf-8")
+    if human_writeup is not None:
+        final_writeup_bytes = human_writeup.content.encode("utf-8")
+        final_writeup_source = "human"
+        writeup_source_label = f"人工稿 v{human_writeup.version}"
+    elif writeup_integrity_error is not None:
+        final_writeup_bytes = (
+            WRITEUP_INTEGRITY_NOTE + generated_writeup_markdown
+        ).encode("utf-8")
+        final_writeup_source = "generated"
+        writeup_source_label = "服务器初稿（人工稿完整性校验失败后的 fallback）"
+        warnings.append(
+            "已保存的人工稿完整性校验失败，未使用人工稿：" + writeup_integrity_error
+        )
+    else:
+        final_writeup_bytes = (
+            WRITEUP_NO_HUMAN_NOTE + generated_writeup_markdown
+        ).encode("utf-8")
+        final_writeup_source = "generated"
+        writeup_source_label = "服务器初稿（尚未保存人工稿）"
 
     def add_bytes(archive, arcname: str, data: bytes) -> None:
         archive.writestr(_zip_info(arcname), data)
@@ -354,18 +385,30 @@ def build_export_archive(
             )
             add_bytes(
                 archive,
-                "writeup.md",
-                writeup_markdown.encode("utf-8"),
+                "writeup_generated.md",
+                generated_writeup_bytes,
             )
+            add_bytes(archive, "writeup.md", final_writeup_bytes)
             # Missing/tampered evidence or an unverified import makes the
             # delivered dossier incomplete even if metadata-level preview passed.
             export_completeness = (
-                "incomplete" if (missing_files or import_export_error) else completeness
+                "incomplete"
+                if (
+                    missing_files
+                    or import_export_error
+                    or writeup_integrity_error is not None
+                )
+                else completeness
             )
             add_bytes(
                 archive,
                 "ai_disclosure.md",
-                _ai_disclosure(challenge, project, export_completeness).encode("utf-8"),
+                _ai_disclosure(
+                    challenge,
+                    project,
+                    export_completeness,
+                    writeup_source_label,
+                ).encode("utf-8"),
             )
 
             manifest_payload = {
@@ -385,6 +428,26 @@ def build_export_archive(
                 "integrity": integrity,
                 "tool_execution_enabled": False,
                 "ai_suggestions_are_not_actions": True,
+                "writeup": {
+                    "final_source": final_writeup_source,
+                    "final_sha256": hashlib.sha256(final_writeup_bytes).hexdigest(),
+                    "final_size": len(final_writeup_bytes),
+                    "generated": {
+                        "sha256": hashlib.sha256(generated_writeup_bytes).hexdigest(),
+                        "size": len(generated_writeup_bytes),
+                    },
+                    "human": (
+                        {
+                            "version": human_writeup.version,
+                            "sha256": human_writeup.sha256,
+                            "size": human_writeup.size,
+                            "saved_at": human_writeup.saved_at,
+                        }
+                        if human_writeup is not None
+                        else None
+                    ),
+                    "integrity_error": writeup_integrity_error,
+                },
                 "imports": import_statuses,
                 "artifacts": [
                     {
@@ -419,6 +482,15 @@ def build_export_archive(
                             "",
                             "缺失文件/未验证导入：",
                             *[f"- {item}" for item in missing_files],
+                        ]
+                    )
+                if writeup_integrity_error is not None:
+                    incomplete_lines.extend(
+                        [
+                            "",
+                            "人工稿完整性错误：",
+                            f"- {writeup_integrity_error}",
+                            "- 导出已改用服务器初稿，不包含被篡改的人工稿内容。",
                         ]
                     )
                 incomplete_lines.append("")
