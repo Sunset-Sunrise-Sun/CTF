@@ -295,7 +295,7 @@ async def test_deepseek_connection() -> tuple[str, str]:
             messages=[
                 Message(
                     role="user",
-                    content="Reply with OK. This is a synthetic connectivity test; no challenge data is included.",
+                    content="Reply with OK. This is a synthetic connectivity test; no user-provided content is included.",
                 )
             ]
         )
