@@ -79,7 +79,7 @@ def build_deepseek_provider() -> DeepSeekAdapter:
     )
 
 
-def _redact(text: str) -> str:
+def redact_sensitive(text: str) -> str:
     for pattern in SECRET_PATTERNS:
         text = pattern.sub("[REDACTED_SECRET]", text)
     return text
@@ -126,7 +126,7 @@ def collect_challenge_context(
             "actor": event.actor,
             "payload": payload,
         }
-        sections.append(_redact(str(summary))[:4000])
+        sections.append(redact_sensitive(str(summary))[:4000])
 
     included: list[str] = []
     used = sum(len(part.encode("utf-8")) for part in sections)
