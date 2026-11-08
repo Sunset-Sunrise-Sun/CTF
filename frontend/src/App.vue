@@ -50,6 +50,7 @@ const busy = ref(""),
   aiQuestion = ref(""),
   aiAnswer = ref(""),
   aiBusy = ref(false),
+  aiTestBusy = ref(false),
   aiConsent = ref(false),
   aiStatus = ref<{network_enabled:boolean; provider:string; model_id:string; credentials_configured:boolean; execution_enabled:boolean}>(),
   integrity = ref<{
@@ -233,6 +234,28 @@ async function loadAIStatus() {
     }>("/model/status");
   } catch {
     aiStatus.value = undefined;
+  }
+}
+async function testAIConnection() {
+  if (!aiStatus.value?.network_enabled || !aiStatus.value.credentials_configured) return;
+  aiTestBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const result = await request<{
+      success: boolean;
+      provider: string;
+      model_id: string;
+      sent_synthetic_content_only: boolean;
+    }>("/model/test", { confirm_synthetic_request: true }, "POST", "/api", 120000);
+    notice.value = result.success
+      ? `API 连通成功：${result.provider} · ${result.model_id}。仅发送了固定合成提示，没有发送题目内容。`
+      : "API 连通测试未成功。";
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    aiTestBusy.value = false;
+    await loadAIStatus();
   }
 }
 async function askAI() {
@@ -842,7 +865,13 @@ docker run --rm --network none ctf-local</pre
             <span v-else>服务器未开启模型联网</span>
             <small>{{ aiStatus?.provider || 'DeepSeek' }} · {{ aiStatus?.model_id || 'deepseek-chat' }}</small>
             <button type="button" @click="guard('检查模型状态', loadAIStatus)">刷新状态</button>
+            <button
+              type="button"
+              :disabled="aiTestBusy || !aiStatus?.network_enabled || !aiStatus?.credentials_configured"
+              @click="testAIConnection"
+            >{{ aiTestBusy ? "正在发送合成测试…" : "测试 API 连接（仅发送固定 OK 提示）" }}</button>
           </div>
+          <p class="muted">连接测试只向 DeepSeek 发送固定的“Reply with OK”提示，不包含题目描述、附件、比赛规则或聊天记录；实际解题请求仍需单独勾选数据外发确认。</p>
           <p v-if="selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0'" class="warning">
             当前题目 AI 使用等级为 {{ selected.ai_usage_level }}，按规则不允许调用 AI。请先核对比赛规则并正确设置等级。
           </p>
