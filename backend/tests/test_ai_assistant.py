@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+from app.ai_assistant import _redact
+
+
+def test_ai_chat_requires_explicit_consent_and_server_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv("CTF_MODEL_NETWORK_ENABLED", raising=False)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        challenge = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic Web", "category": "Web", "ai_usage_level": "A2"},
+        ).json()
+        cid = challenge["challenge_id"]
+        no_consent = client.post(
+            f"/api/challenges/{cid}/ai/chat",
+            json={"question": "Analyze this", "confirm_external_processing": False},
+        )
+        assert no_consent.status_code == 400
+        consent_but_disabled = client.post(
+            f"/api/challenges/{cid}/ai/chat",
+            json={"question": "Analyze this", "confirm_external_processing": True},
+        )
+        assert consent_but_disabled.status_code == 503
+        assert client.get("/api/health").json()["model_network_enabled"] is False
+
+
+def test_ai_chat_records_only_unverified_suggestion(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+
+    async def fake_ask(**kwargs):
+        assert kwargs["question"] == "Explain the synthetic challenge"
+        return "建议先检查输入点。", "deepseek", "deepseek-chat", ["app.py"]
+
+    monkeypatch.setattr("app.main.ask_challenge", fake_ask)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        challenge = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic Web", "category": "Web", "ai_usage_level": "A2"},
+        ).json()
+        cid = challenge["challenge_id"]
+        response = client.post(
+            f"/api/challenges/{cid}/ai/chat",
+            json={
+                "question": "Explain the synthetic challenge",
+                "confirm_external_processing": True,
+            },
+        )
+        assert response.status_code == 201
+        result = response.json()
+        assert result["verification_status"] == "unverified_suggestion"
+        assert result["included_files"] == ["app.py"]
+        assert client.get("/api/challenges/" + cid + "/events").json()[-1]["event_type"] == "agent_message"
+
+
+def test_ai_chat_blocks_unknown_and_a0(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    with TestClient(create_app(tmp_path / "data")) as client:
+        for level in ("unknown", "A0"):
+            challenge = client.post(
+                "/api/challenges",
+                json={"name": "Synthetic", "category": "Misc", "ai_usage_level": level},
+            ).json()
+            response = client.post(
+                f"/api/challenges/{challenge['challenge_id']}/ai/chat",
+                json={"question": "Analyze", "confirm_external_processing": True},
+            )
+            assert response.status_code == 403
+
+
+def test_secret_redaction_covers_prompts_and_context():
+    value = "api_key=sk-synthetic-secret Bearer abcdefghijklmnop password: synthetic-pass"
+    redacted = _redact(value)
+    assert "sk-synthetic-secret" not in redacted
+    assert "abcdefghijklmnop" not in redacted
+    assert "synthetic-pass" not in redacted
