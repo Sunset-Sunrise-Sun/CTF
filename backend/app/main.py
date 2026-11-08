@@ -67,7 +67,7 @@ from .writeups import (
 from .store import Store
 from .workspace import Workspace
 from .writeup import build_writeup_preview
-from .ai_assistant import AIChatRequest, AIChatResponse, ask_challenge, model_network_enabled, redact_sensitive
+from .ai_assistant import AIChatRequest, AIChatResponse, AIConnectivityTestRequest, ask_challenge, model_network_enabled, redact_sensitive, test_deepseek_connection
 from .providers import ProviderError
 
 # Multipart framing (boundary, per-part headers, filename) is allowed on top of
@@ -771,6 +771,29 @@ def create_app(
                 os.environ.get(os.environ.get("CTF_MODEL_API_KEY_ENV", "DEEPSEEK_API_KEY"))
             ),
             "execution_enabled": False,
+        }
+
+    @app.post("/api/model/test")
+    async def model_connectivity_test(body: AIConnectivityTestRequest):
+        if not body.confirm_synthetic_request:
+            raise HTTPException(400, "Explicit confirmation is required for the synthetic connectivity request")
+        if not model_network_enabled():
+            raise HTTPException(503, {"code": "model_network_disabled"})
+        try:
+            provider_id, model_id = await test_deepseek_connection()
+        except ProviderError as error:
+            status = {
+                "missing_credentials": 503, "model_network_disabled": 503,
+                "rate_limited": 429, "timeout": 504, "authentication": 502,
+                "upstream_error": 502, "transport_error": 502,
+                "invalid_response": 502, "empty_response": 502,
+            }.get(error.code, 502)
+            raise HTTPException(status, {"code": error.code}) from None
+        return {
+            "success": True,
+            "provider": provider_id,
+            "model_id": model_id,
+            "sent_synthetic_content_only": True,
         }
 
     @app.post("/api/challenges/{cid}/ai/chat", response_model=AIChatResponse, status_code=201)
