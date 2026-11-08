@@ -47,6 +47,11 @@ const busy = ref(""),
   tab = ref("overview"),
   progress = ref<number | null>(null),
   uploadStatus = ref(""),
+  aiQuestion = ref(""),
+  aiAnswer = ref(""),
+  aiBusy = ref(false),
+  aiConsent = ref(false),
+  aiStatus = ref<{network_enabled:boolean; provider:string; model_id:string; credentials_configured:boolean; execution_enabled:boolean}>(),
   integrity = ref<{
     valid: boolean;
     earliest_affected_sequence?: number | null;
@@ -156,6 +161,7 @@ async function refresh() {
 async function reload() {
   challenges.value = await request<Challenge[]>("/challenges");
   await loadProject();
+  await loadAIStatus();
   if (selected.value) await refresh();
 }
 async function select(c: Challenge) {
@@ -206,6 +212,33 @@ async function select(c: Challenge) {
     notice.value = "浏览器存储不可用，请手动下载草稿。";
   }
   await Promise.all([refresh(), draft.value.load()]);
+}
+async function loadAIStatus() {
+  aiStatus.value = await request("/model/status");
+}
+async function askAI() {
+  if (!selectedId.value || !aiQuestion.value.trim() || !aiConsent.value) return;
+  aiBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const result = await request<{
+      event_id:string; answer:string; provider_id:string; model_id:string;
+      included_files:string[]; verification_status:string;
+    }>(root.value + "/ai/chat", {
+      question: aiQuestion.value.trim(),
+      confirm_external_processing: true,
+    }, "POST");
+    aiAnswer.value = result.answer;
+    aiQuestion.value = "";
+    aiConsent.value = false;
+    notice.value = "AI 建议已记录到事件时间线；未执行任何命令。";
+    await refresh();
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    aiBusy.value = false;
+  }
 }
 async function saveProject() {
   project.value = await request<Project>("/project", { ...projectForm }, "PUT");
@@ -595,6 +628,7 @@ onUnmounted(clearFile);
           <button
             v-for="t in [
               ['overview', '题目与导入'],
+              ['ai', 'AI 解题助手'],
               ['files', '文件预览'],
               ['operations', '运行记录'],
               ['timeline', '事件时间线'],
@@ -778,6 +812,37 @@ docker run --rm --network none ctf-local</pre
             >
             <p>仅适用于已检查并信任的 Dockerfile；自行核对挂载、网络与规则。</p>
           </details>
+        </section>
+        <section v-show="tab === 'ai'" class="panel ai-panel">
+          <h3>AI 辅助解题 · DeepSeek</h3>
+          <p class="muted">模型只提供分析建议，不执行命令、不访问比赛目标、不提交 Flag。AI 回答会写入事件时间线，并标记为未验证建议。</p>
+          <div class="ai-status">
+            <strong>连接状态：</strong>
+            <span v-if="aiStatus?.network_enabled && aiStatus.credentials_configured">已配置联网开关与凭证（实际连通性以请求结果为准）</span>
+            <span v-else-if="aiStatus?.network_enabled">联网开关已开启，但尚未检测到 API Key</span>
+            <span v-else>服务器未开启模型联网</span>
+            <small>{{ aiStatus?.provider || 'DeepSeek' }} · {{ aiStatus?.model_id || 'deepseek-chat' }}</small>
+            <button type="button" @click="guard('检查模型状态', loadAIStatus)">刷新状态</button>
+          </div>
+          <p v-if="selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0'" class="warning">
+            当前题目 AI 使用等级为 {{ selected.ai_usage_level }}，按规则不允许调用 AI。请先核对比赛规则并正确设置等级。
+          </p>
+          <label>向 AI 提问
+            <textarea v-model="aiQuestion" maxlength="8000" rows="5" placeholder="例如：请分析这道 Web 题的入口、可能的漏洞点，并给出逐步验证思路。"></textarea>
+          </label>
+          <label class="consent">
+            <input type="checkbox" v-model="aiConsent" />
+            我确认将本题描述、已导入的文本文件及相关记录发送给配置的模型服务进行处理。
+          </label>
+          <p class="muted">不会发送二进制附件原文。导入文本会先校验 SHA-256，并进行常见密钥格式脱敏；仍请勿上传密码、个人隐私或无权外传的材料。</p>
+          <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
+            {{ aiBusy ? '正在请求模型…' : '发送问题并获取分析' }}
+          </button>
+          <section v-if="aiAnswer" class="ai-answer">
+            <h4>最新 AI 分析（未验证）</h4>
+            <pre>{{ aiAnswer }}</pre>
+            <p class="muted">请自行检查建议，手动执行后再将真实结果和证据补录到工作台。</p>
+          </section>
         </section>
         <section v-show="tab === 'timeline'" class="panel">
           <div class="section-title">
