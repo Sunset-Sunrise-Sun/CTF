@@ -144,6 +144,17 @@ def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
         assert "SYNTHETIC_STANDALONE_BINARY" in context
 
 
+def test_redaction_covers_common_cloud_and_git_tokens():
+    samples = [
+        "sk-" + "a" * 24,
+        "AKIA" + "A" * 16,
+        "ghp_" + "b" * 30,
+        "eyJ" + "c" * 16 + "." + "d" * 16 + "." + "e" * 16,
+    ]
+    for sample in samples:
+        assert sample not in redact_sensitive(sample)
+
+
 def test_static_binary_summary_extracts_metadata_without_execution():
     data = bytearray(20)
     data[:4] = bytes.fromhex("7f454c46")
