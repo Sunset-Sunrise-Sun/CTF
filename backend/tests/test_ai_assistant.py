@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.ai_assistant import redact_sensitive
+from app.ai_assistant import redact_sensitive, collect_challenge_context
+from app.models import Challenge
 
 
 def test_ai_chat_requires_explicit_consent_and_server_opt_in(tmp_path, monkeypatch):
@@ -78,3 +79,28 @@ def test_secret_redaction_covers_prompts_and_context():
     assert "sk-synthetic-secret" not in redacted
     assert "abcdefghijklmnop" not in redacted
     assert "synthetic-pass" not in redacted
+
+
+def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
+    with TestClient(create_app(tmp_path / "data")) as client:
+        raw = b"synthetic source: print('hello from evidence')"
+        challenge = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic", "category": "Reverse", "ai_usage_level": "A2"},
+        ).json()
+        cid = challenge["challenge_id"]
+        uploaded = client.post(
+            f"/api/challenges/{cid}/artifacts",
+            files={"file": ("notes.txt", raw, "text/plain")},
+        )
+        assert uploaded.status_code == 201
+        state = client.app.state
+        context, included = collect_challenge_context(
+            challenge=Challenge.model_validate(challenge),
+            project=None,
+            store=state.store,
+            workspace_challenge=state.workspace.challenge(cid),
+            artifact_store=state.artifacts,
+        )
+        assert "hello from evidence" in context
+        assert included == ["evidence/notes.txt"]
