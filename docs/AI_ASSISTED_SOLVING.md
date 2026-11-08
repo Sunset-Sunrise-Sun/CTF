@@ -37,6 +37,7 @@ Remove-Item Env:CTF_MODEL_NETWORK_ENABLED -ErrorAction SilentlyContinue
 
 ```powershell
 cd backend
+$env:CTF_DATA_DIR = "C:\\CTF-AI-Smoke-Isolated"
 python -m app.ai_smoke_cli --allow-model-network
 ```
 
@@ -65,7 +66,7 @@ python -m app.ai_smoke_cli --allow-model-network
 npm run test:e2e:ai
 ```
 
-该专用测试会自动启动隔离的本地 FastAPI 与 Vite 服务，使用独立的 `.playwright-ai-data` 数据目录，并强制关闭模型联网；它验证 AI 面板、题目等级为 A2 时的 UI 展示、用户勾选数据外发确认，以及服务端未开启联网时的 503 拒绝。测试不会连接真实模型，也不会发送题目内容到外部服务。
+该专用测试会自动启动隔离的本地 FastAPI 与 Vite 服务，使用独立端口 `18002` / `15174`，并为每次运行生成独立数据目录；启动时拒绝复用已有服务，避免误连本机其他 CTF 服务或写入其数据。模型联网强制关闭；测试验证 AI 面板、题目等级为 A2 时的 UI 展示、用户勾选数据外发确认，以及服务端未开启联网时的 503 拒绝。测试不会连接真实模型，也不会发送题目内容到外部服务。
 
 ## 验收边界
 
