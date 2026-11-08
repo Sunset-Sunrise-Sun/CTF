@@ -13,7 +13,7 @@
 | PR #7（MVP 后端） | 已合并至 A00 分支 |
 | PR #8（MVP 前端 C5） | 已合并至 A00 分支 |
 | MVP 代码 HEAD（run #40 对应提交） | `8439fcc73bd2da0b5bd9a09d79fa1c1772b89609` |
-| 当前文档 HEAD（本次文档收尾后） | `8285e47f111b6aaf00166346667ae7139caebae1` |
+| 当前文档 HEAD（本次文档收尾后） | `21556f08eb016f85fd03c189ce76fd22227ba091` |
 | PR #6 base | `docs/p1-2-tool-lifecycle-design` |
 
 PR #7 的合并提交为 `f2e8461380c0d7fbe175a8865ee403d8a29ab64e`；PR #8 的合并提交为 `8439fcc73bd2da0b5bd9a09d79fa1c1772b89609`。
@@ -24,7 +24,7 @@ PR #6 原描述中的 `96152b7a66e16d726d50bebb4d833167b140e19c` 是较早的 A0
 
 工作流： [P0 checks / run #40](https://github.com/Sunset-Sunrise-Sun/CTF/actions/runs/42462865171)
 
-运行关联的 MVP 代码 HEAD 为 `8439fcc73bd2da0b5bd9a09d79fa1c1772b89609`，结论为 `success`。随后仅有文档状态更正提交，当前分支文档 HEAD 为 `8285e47f111b6aaf00166346667ae7139caebae1`；本轮未改动业务源码。
+运行关联的 MVP 代码 HEAD 为 `8439fcc73bd2da0b5bd9a09d79fa1c1772b89609`，结论为 `success`。随后仅有文档状态更正提交，当前分支文档 HEAD 为 `21556f08eb016f85fd03c189ce76fd22227ba091`；本轮未改动业务源码。
 
 | Job | 实际结果 | 说明 |
 |---|---:|---|
