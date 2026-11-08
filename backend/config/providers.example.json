@@ -1,0 +1,53 @@
+{
+  "selected": "compatible",
+  "providers": [
+    {
+      "provider_id": "compatible",
+      "adapter": "openai-compatible",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "model_id": "configure-model",
+      "api_key_env": "LOCAL_MODEL_API_KEY",
+      "capabilities": {
+        "streaming": false,
+        "tool_calling": false,
+        "structured_output": false
+      }
+    },
+    {
+      "provider_id": "deepseek",
+      "adapter": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "model_id": "deepseek-chat",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "capabilities": {
+        "streaming": false,
+        "tool_calling": false,
+        "structured_output": false
+      }
+    },
+    {
+      "provider_id": "openai",
+      "adapter": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "model_id": "configure-model",
+      "api_key_env": "OPENAI_API_KEY",
+      "capabilities": {
+        "streaming": false,
+        "tool_calling": false,
+        "structured_output": false
+      }
+    },
+    {
+      "provider_id": "anthropic",
+      "adapter": "anthropic",
+      "base_url": "https://api.anthropic.com/v1",
+      "model_id": "configure-model",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "capabilities": {
+        "streaming": false,
+        "tool_calling": false,
+        "structured_output": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "source_p11_files_identical": 47,
+  "design_files_preserved_except_readme": 13,
+  "readme_equals_p11": true,
+  "historical_event_hash": "05c9cc5912383e872e9d6379b5ef06c33699cd5b6fcaccfeef342ad46aa24d02",
+  "historical_event_body_sha256": "9b7be21db6f92c6ddfadf33891384babf84ff17344c13c9b7dac5489080baf19",
+  "canonical_bytes_equal": true,
+  "old_body_bytes_preserved": true,
+  "event_heads_preserved": true,
+  "migrations": [
+    "001_initial.sql",
+    "002_artifacts.sql"
+  ],
+  "artifact_source_link_preserved": true,
+  "same_challenge_dedup_no_extra_event": true,
+  "restart_all_event_artifact_rows_unchanged": true,
+  "download_sha256": "7c41464348d8fd79cdf062cd7035d287ad664d17033da406ad969a3f556e7906",
+  "safety_health": {
+    "status": "ok",
+    "execution_enabled": false,
+    "model_network_enabled": false,
+    "artifact_max_bytes": 52428800
+  },
+  "scope": "Synthetic compatibility only; no real models/tools/keys/attachments",
+  "fixed_p11_database_all_rows_preserved": true,
+  "fixed_p11_source_event_id_preserved": true
+}

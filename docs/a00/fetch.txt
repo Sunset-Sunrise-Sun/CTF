@@ -1,0 +1,5 @@
+$ git -c http.version=HTTP/1.1 -c credential.interactive=never fetch --prune origin +refs/heads/*:refs/remotes/origin/*
+fatal: unable to access 'https://github.com/Sunset-Sunrise-Sun/CTF.git/': Failed to connect to github.com:443 after 21124 ms: Could not connect to server
+
+exit_code=128
+GitHub connected API used independently to confirm protected branch heads.

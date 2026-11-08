@@ -1,0 +1,2253 @@
+{
+  "Scope": {
+    "additionalProperties": false,
+    "properties": {
+      "network_enabled": {
+        "default": false,
+        "title": "Network Enabled",
+        "type": "boolean"
+      },
+      "allowed_targets": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allowed Targets",
+        "type": "array"
+      },
+      "profile": {
+        "const": "XSWCTF",
+        "default": "XSWCTF",
+        "title": "Profile",
+        "type": "string"
+      },
+      "max_active_containers": {
+        "default": 3,
+        "maximum": 3,
+        "minimum": 0,
+        "title": "Max Active Containers",
+        "type": "integer"
+      }
+    },
+    "title": "Scope",
+    "type": "object"
+  },
+  "ChallengeCreate": {
+    "$defs": {
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "network_enabled": {
+            "default": false,
+            "title": "Network Enabled",
+            "type": "boolean"
+          },
+          "allowed_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Targets",
+            "type": "array"
+          },
+          "profile": {
+            "const": "XSWCTF",
+            "default": "XSWCTF",
+            "title": "Profile",
+            "type": "string"
+          },
+          "max_active_containers": {
+            "default": 3,
+            "maximum": 3,
+            "minimum": 0,
+            "title": "Max Active Containers",
+            "type": "integer"
+          }
+        },
+        "title": "Scope",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      },
+      "category": {
+        "enum": [
+          "Misc",
+          "Crypto",
+          "Pwn",
+          "Web",
+          "Reverse"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "description": {
+        "default": "",
+        "title": "Description",
+        "type": "string"
+      },
+      "source": {
+        "default": "practice",
+        "enum": [
+          "warmup",
+          "practice",
+          "competition"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "scope": {
+        "$ref": "#/$defs/Scope"
+      },
+      "ai_usage_level": {
+        "default": "unknown",
+        "enum": [
+          "A0",
+          "A1",
+          "A2",
+          "unknown"
+        ],
+        "title": "Ai Usage Level",
+        "type": "string"
+      },
+      "score": {
+        "anyOf": [
+          {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Score"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
+      }
+    },
+    "required": [
+      "name",
+      "category"
+    ],
+    "title": "ChallengeCreate",
+    "type": "object"
+  },
+  "Challenge": {
+    "$defs": {
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "network_enabled": {
+            "default": false,
+            "title": "Network Enabled",
+            "type": "boolean"
+          },
+          "allowed_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Targets",
+            "type": "array"
+          },
+          "profile": {
+            "const": "XSWCTF",
+            "default": "XSWCTF",
+            "title": "Profile",
+            "type": "string"
+          },
+          "max_active_containers": {
+            "default": 3,
+            "maximum": 3,
+            "minimum": 0,
+            "title": "Max Active Containers",
+            "type": "integer"
+          }
+        },
+        "title": "Scope",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      },
+      "category": {
+        "enum": [
+          "Misc",
+          "Crypto",
+          "Pwn",
+          "Web",
+          "Reverse"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "description": {
+        "default": "",
+        "title": "Description",
+        "type": "string"
+      },
+      "source": {
+        "default": "practice",
+        "enum": [
+          "warmup",
+          "practice",
+          "competition"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "scope": {
+        "$ref": "#/$defs/Scope"
+      },
+      "ai_usage_level": {
+        "default": "unknown",
+        "enum": [
+          "A0",
+          "A1",
+          "A2",
+          "unknown"
+        ],
+        "title": "Ai Usage Level",
+        "type": "string"
+      },
+      "score": {
+        "anyOf": [
+          {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Score"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "status": {
+        "default": "active",
+        "enum": [
+          "active",
+          "archived"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "solve_status": {
+        "default": "unknown",
+        "enum": [
+          "unknown",
+          "candidate",
+          "verified"
+        ],
+        "title": "Solve Status",
+        "type": "string"
+      },
+      "writeup_status": {
+        "default": "not_generated",
+        "enum": [
+          "not_generated",
+          "incomplete",
+          "review_required",
+          "complete"
+        ],
+        "title": "Writeup Status",
+        "type": "string"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "category"
+    ],
+    "title": "Challenge",
+    "type": "object"
+  },
+  "Event": {
+    "additionalProperties": false,
+    "properties": {
+      "event_id": {
+        "title": "Event Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "sequence": {
+        "minimum": 1,
+        "title": "Sequence",
+        "type": "integer"
+      },
+      "occurred_at": {
+        "title": "Occurred At",
+        "type": "string"
+      },
+      "actor": {
+        "enum": [
+          "user",
+          "agent",
+          "tool",
+          "system"
+        ],
+        "title": "Actor",
+        "type": "string"
+      },
+      "event_type": {
+        "enum": [
+          "note",
+          "agent_message",
+          "hypothesis",
+          "plan",
+          "tool_proposed",
+          "tool_approved",
+          "tool_rejected",
+          "tool_started",
+          "tool_finished",
+          "command_started",
+          "command_finished",
+          "artifact_added",
+          "challenge_imported",
+          "manual_operation_recorded",
+          "finding",
+          "verification",
+          "limitation",
+          "model_call"
+        ],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "payload": {
+        "additionalProperties": true,
+        "title": "Payload",
+        "type": "object"
+      },
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Artifact Ids",
+        "type": "array"
+      },
+      "event_refs": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Event Refs",
+        "type": "array"
+      },
+      "previous_event_hash": {
+        "title": "Previous Event Hash",
+        "type": "string"
+      },
+      "event_hash": {
+        "default": "",
+        "title": "Event Hash",
+        "type": "string"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "sequence",
+      "actor",
+      "event_type",
+      "payload",
+      "previous_event_hash"
+    ],
+    "title": "Event",
+    "type": "object"
+  },
+  "NoteCreate": {
+    "additionalProperties": false,
+    "properties": {
+      "text": {
+        "maxLength": 10000,
+        "minLength": 1,
+        "title": "Text",
+        "type": "string"
+      },
+      "retrospective": {
+        "default": false,
+        "title": "Retrospective",
+        "type": "boolean"
+      },
+      "correction_of": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Correction Of"
+      },
+      "kind": {
+        "default": "note",
+        "enum": [
+          "note",
+          "approach"
+        ],
+        "title": "Kind",
+        "type": "string"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "title": "NoteCreate",
+    "type": "object"
+  },
+  "Artifact": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_id": {
+        "title": "Artifact Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "ingested_at": {
+        "title": "Ingested At",
+        "type": "string"
+      },
+      "source_event_id": {
+        "title": "Source Event Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "sha256",
+      "size",
+      "media_type",
+      "original_filename",
+      "source_event_id"
+    ],
+    "title": "Artifact",
+    "type": "object"
+  },
+  "ToolProposal": {
+    "$defs": {
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "network_enabled": {
+            "default": false,
+            "title": "Network Enabled",
+            "type": "boolean"
+          },
+          "allowed_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Targets",
+            "type": "array"
+          },
+          "profile": {
+            "const": "XSWCTF",
+            "default": "XSWCTF",
+            "title": "Profile",
+            "type": "string"
+          },
+          "max_active_containers": {
+            "default": 3,
+            "maximum": 3,
+            "minimum": 0,
+            "title": "Max Active Containers",
+            "type": "integer"
+          }
+        },
+        "title": "Scope",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "proposal_id": {
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "call_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Call Id"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "tool_name": {
+        "title": "Tool Name",
+        "type": "string"
+      },
+      "arguments": {
+        "additionalProperties": true,
+        "title": "Arguments",
+        "type": "object"
+      },
+      "scope": {
+        "$ref": "#/$defs/Scope"
+      },
+      "proposed_at": {
+        "title": "Proposed At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "tool_name",
+      "arguments",
+      "scope"
+    ],
+    "title": "ToolProposal",
+    "type": "object"
+  },
+  "ToolApproval": {
+    "additionalProperties": false,
+    "properties": {
+      "proposal_id": {
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "approving_user": {
+        "title": "Approving User",
+        "type": "string"
+      },
+      "approved": {
+        "title": "Approved",
+        "type": "boolean"
+      },
+      "decided_at": {
+        "title": "Decided At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "proposal_id",
+      "approving_user",
+      "approved"
+    ],
+    "title": "ToolApproval",
+    "type": "object"
+  },
+  "ToolStarted": {
+    "additionalProperties": false,
+    "properties": {
+      "proposal_id": {
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "executable": {
+        "title": "Executable",
+        "type": "string"
+      },
+      "executable_version": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Executable Version"
+      },
+      "argv": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Argv",
+        "type": "array"
+      },
+      "cwd": {
+        "title": "Cwd",
+        "type": "string"
+      },
+      "environment_allowlist": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment Allowlist",
+        "type": "array"
+      },
+      "started_at": {
+        "title": "Started At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "proposal_id",
+      "executable",
+      "argv",
+      "cwd",
+      "environment_allowlist",
+      "started_at"
+    ],
+    "title": "ToolStarted",
+    "type": "object"
+  },
+  "ToolExecutionResult": {
+    "additionalProperties": false,
+    "properties": {
+      "proposal_id": {
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "started_event_id": {
+        "title": "Started Event Id",
+        "type": "string"
+      },
+      "finished_event_id": {
+        "title": "Finished Event Id",
+        "type": "string"
+      },
+      "ended_at": {
+        "title": "Ended At",
+        "type": "string"
+      },
+      "exit_code": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Exit Code"
+      },
+      "timed_out": {
+        "title": "Timed Out",
+        "type": "boolean"
+      },
+      "stdout_artifact_id": {
+        "title": "Stdout Artifact Id",
+        "type": "string"
+      },
+      "stderr_artifact_id": {
+        "title": "Stderr Artifact Id",
+        "type": "string"
+      },
+      "stdout_sha256": {
+        "title": "Stdout Sha256",
+        "type": "string"
+      },
+      "stderr_sha256": {
+        "title": "Stderr Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "proposal_id",
+      "started_event_id",
+      "finished_event_id",
+      "ended_at",
+      "exit_code",
+      "timed_out",
+      "stdout_artifact_id",
+      "stderr_artifact_id",
+      "stdout_sha256",
+      "stderr_sha256"
+    ],
+    "title": "ToolExecutionResult",
+    "type": "object"
+  },
+  "Finding": {
+    "additionalProperties": false,
+    "properties": {
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "event_ids": {
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "title": "Event Ids",
+        "type": "array"
+      },
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Artifact Ids",
+        "type": "array"
+      }
+    },
+    "required": [
+      "text",
+      "event_ids"
+    ],
+    "title": "Finding",
+    "type": "object"
+  },
+  "Hypothesis": {
+    "additionalProperties": false,
+    "properties": {
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "status": {
+        "default": "unverified",
+        "enum": [
+          "unverified",
+          "supported",
+          "refuted"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "event_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Event Ids",
+        "type": "array"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "title": "Hypothesis",
+    "type": "object"
+  },
+  "Verification": {
+    "additionalProperties": false,
+    "properties": {
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "event_ids": {
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "title": "Event Ids",
+        "type": "array"
+      },
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Artifact Ids",
+        "type": "array"
+      },
+      "method": {
+        "title": "Method",
+        "type": "string"
+      },
+      "result": {
+        "enum": [
+          "unknown",
+          "passed",
+          "failed"
+        ],
+        "title": "Result",
+        "type": "string"
+      }
+    },
+    "required": [
+      "text",
+      "event_ids",
+      "method",
+      "result"
+    ],
+    "title": "Verification",
+    "type": "object"
+  },
+  "WriteupStatement": {
+    "additionalProperties": false,
+    "properties": {
+      "kind": {
+        "enum": [
+          "observation",
+          "hypothesis",
+          "conclusion",
+          "retrospective",
+          "gap"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "event_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Event Ids",
+        "type": "array"
+      },
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Artifact Ids",
+        "type": "array"
+      }
+    },
+    "required": [
+      "kind",
+      "text",
+      "event_ids"
+    ],
+    "title": "WriteupStatement",
+    "type": "object"
+  },
+  "Writeup": {
+    "$defs": {
+      "WriteupStatement": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "observation",
+              "hypothesis",
+              "conclusion",
+              "retrospective",
+              "gap"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "artifact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Artifact Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "event_ids"
+        ],
+        "title": "WriteupStatement",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "solve_status": {
+        "enum": [
+          "unknown",
+          "candidate",
+          "verified"
+        ],
+        "title": "Solve Status",
+        "type": "string"
+      },
+      "writeup_status": {
+        "enum": [
+          "not_generated",
+          "incomplete",
+          "review_required",
+          "complete"
+        ],
+        "title": "Writeup Status",
+        "type": "string"
+      },
+      "statements": {
+        "items": {
+          "$ref": "#/$defs/WriteupStatement"
+        },
+        "title": "Statements",
+        "type": "array"
+      },
+      "generated_at": {
+        "title": "Generated At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "solve_status",
+      "writeup_status",
+      "statements"
+    ],
+    "title": "Writeup",
+    "type": "object"
+  },
+  "Capabilities": {
+    "additionalProperties": false,
+    "properties": {
+      "streaming": {
+        "default": false,
+        "title": "Streaming",
+        "type": "boolean"
+      },
+      "tool_calling": {
+        "default": false,
+        "title": "Tool Calling",
+        "type": "boolean"
+      },
+      "structured_output": {
+        "default": false,
+        "title": "Structured Output",
+        "type": "boolean"
+      }
+    },
+    "title": "Capabilities",
+    "type": "object"
+  },
+  "ProviderConfig": {
+    "$defs": {
+      "Capabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "streaming": {
+            "default": false,
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "tool_calling": {
+            "default": false,
+            "title": "Tool Calling",
+            "type": "boolean"
+          },
+          "structured_output": {
+            "default": false,
+            "title": "Structured Output",
+            "type": "boolean"
+          }
+        },
+        "title": "Capabilities",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "provider_id": {
+        "title": "Provider Id",
+        "type": "string"
+      },
+      "adapter": {
+        "enum": [
+          "deepseek",
+          "openai",
+          "anthropic",
+          "openai-compatible"
+        ],
+        "title": "Adapter",
+        "type": "string"
+      },
+      "base_url": {
+        "title": "Base Url",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "api_key_env": {
+        "title": "Api Key Env",
+        "type": "string"
+      },
+      "timeout_seconds": {
+        "default": 30,
+        "exclusiveMinimum": 0,
+        "maximum": 300,
+        "title": "Timeout Seconds",
+        "type": "number"
+      },
+      "capabilities": {
+        "$ref": "#/$defs/Capabilities"
+      }
+    },
+    "required": [
+      "provider_id",
+      "adapter",
+      "base_url",
+      "model_id",
+      "api_key_env"
+    ],
+    "title": "ProviderConfig",
+    "type": "object"
+  },
+  "Message": {
+    "additionalProperties": false,
+    "properties": {
+      "role": {
+        "enum": [
+          "system",
+          "user",
+          "assistant"
+        ],
+        "title": "Role",
+        "type": "string"
+      },
+      "content": {
+        "title": "Content",
+        "type": "string"
+      }
+    },
+    "required": [
+      "role",
+      "content"
+    ],
+    "title": "Message",
+    "type": "object"
+  },
+  "ToolDefinition": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "description": {
+        "title": "Description",
+        "type": "string"
+      },
+      "parameters": {
+        "additionalProperties": true,
+        "title": "Parameters",
+        "type": "object"
+      }
+    },
+    "required": [
+      "name",
+      "description",
+      "parameters"
+    ],
+    "title": "ToolDefinition",
+    "type": "object"
+  },
+  "ToolCall": {
+    "additionalProperties": false,
+    "properties": {
+      "call_id": {
+        "title": "Call Id",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "arguments": {
+        "additionalProperties": true,
+        "title": "Arguments",
+        "type": "object"
+      }
+    },
+    "required": [
+      "call_id",
+      "name",
+      "arguments"
+    ],
+    "title": "ToolCall",
+    "type": "object"
+  },
+  "ModelRequest": {
+    "$defs": {
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "Message",
+        "type": "object"
+      },
+      "ToolDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "parameters"
+        ],
+        "title": "ToolDefinition",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "messages": {
+        "items": {
+          "$ref": "#/$defs/Message"
+        },
+        "title": "Messages",
+        "type": "array"
+      },
+      "tools": {
+        "items": {
+          "$ref": "#/$defs/ToolDefinition"
+        },
+        "title": "Tools",
+        "type": "array"
+      },
+      "output_schema": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Output Schema"
+      },
+      "allow_degrade": {
+        "default": false,
+        "title": "Allow Degrade",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "messages"
+    ],
+    "title": "ModelRequest",
+    "type": "object"
+  },
+  "ModelResponse": {
+    "$defs": {
+      "ToolCall": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          }
+        },
+        "required": [
+          "call_id",
+          "name",
+          "arguments"
+        ],
+        "title": "ToolCall",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "provider_id": {
+        "title": "Provider Id",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "tool_calls": {
+        "items": {
+          "$ref": "#/$defs/ToolCall"
+        },
+        "title": "Tool Calls",
+        "type": "array"
+      },
+      "degraded_features": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Degraded Features",
+        "type": "array"
+      }
+    },
+    "required": [
+      "provider_id",
+      "model_id",
+      "text"
+    ],
+    "title": "ModelResponse",
+    "type": "object"
+  },
+  "StreamChunk": {
+    "$defs": {
+      "ModelResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/$defs/ToolCall"
+            },
+            "title": "Tool Calls",
+            "type": "array"
+          },
+          "degraded_features": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Degraded Features",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider_id",
+          "model_id",
+          "text"
+        ],
+        "title": "ModelResponse",
+        "type": "object"
+      },
+      "ToolCall": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          }
+        },
+        "required": [
+          "call_id",
+          "name",
+          "arguments"
+        ],
+        "title": "ToolCall",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "text": {
+        "default": "",
+        "title": "Text",
+        "type": "string"
+      },
+      "response": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ModelResponse"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "title": "StreamChunk",
+    "type": "object"
+  },
+  "ArtifactView": {
+    "additionalProperties": false,
+    "description": "Artifact plus evidence metadata stored on its artifact_added event.\n\nHistorical artifacts whose event payload predates evidence classification\ndefault to ``other`` with no claimed capture time.",
+    "properties": {
+      "artifact_id": {
+        "title": "Artifact Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "ingested_at": {
+        "title": "Ingested At",
+        "type": "string"
+      },
+      "source_event_id": {
+        "title": "Source Event Id",
+        "type": "string"
+      },
+      "evidence_kind": {
+        "default": "other",
+        "enum": [
+          "challenge_archive",
+          "analysis",
+          "execution",
+          "execution_output",
+          "flag_capture",
+          "platform_verification",
+          "source_code",
+          "other"
+        ],
+        "title": "Evidence Kind",
+        "type": "string"
+      },
+      "capture_time_claim": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Capture Time Claim"
+      },
+      "source_event_type": {
+        "default": "artifact_added",
+        "title": "Source Event Type",
+        "type": "string"
+      },
+      "source_event_sequence": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Source Event Sequence"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "sha256",
+      "size",
+      "media_type",
+      "original_filename",
+      "source_event_id"
+    ],
+    "title": "ArtifactView",
+    "type": "object"
+  },
+  "Project": {
+    "additionalProperties": false,
+    "properties": {
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "project_name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Project Name",
+        "type": "string"
+      },
+      "competition_name": {
+        "default": "",
+        "maxLength": 200,
+        "title": "Competition Name",
+        "type": "string"
+      },
+      "competition_type": {
+        "default": "",
+        "maxLength": 100,
+        "title": "Competition Type",
+        "type": "string"
+      },
+      "rules_filename": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Filename"
+      },
+      "rules_sha256": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Sha256"
+      },
+      "rules_size": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Size"
+      },
+      "rules_ingested_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rules Ingested At"
+      },
+      "ai_policy_summary": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Ai Policy Summary",
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_name"
+    ],
+    "title": "Project",
+    "type": "object"
+  },
+  "ProjectUpdate": {
+    "additionalProperties": false,
+    "properties": {
+      "project_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Project Name"
+      },
+      "competition_name": {
+        "anyOf": [
+          {
+            "maxLength": 200,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Name"
+      },
+      "competition_type": {
+        "anyOf": [
+          {
+            "maxLength": 100,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Competition Type"
+      },
+      "ai_policy_summary": {
+        "anyOf": [
+          {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Ai Policy Summary"
+      }
+    },
+    "title": "ProjectUpdate",
+    "type": "object"
+  },
+  "ManualOperationCreate": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Command",
+        "type": "string"
+      },
+      "working_directory": {
+        "maxLength": 500,
+        "minLength": 1,
+        "title": "Working Directory",
+        "type": "string"
+      },
+      "purpose": {
+        "maxLength": 500,
+        "minLength": 1,
+        "title": "Purpose",
+        "type": "string"
+      },
+      "exit_code": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Exit Code"
+      },
+      "result_note": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Result Note",
+        "type": "string"
+      },
+      "started_at_claim": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Started At Claim"
+      },
+      "finished_at_claim": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Finished At Claim"
+      }
+    },
+    "required": [
+      "command",
+      "working_directory",
+      "purpose",
+      "result_note"
+    ],
+    "title": "ManualOperationCreate",
+    "type": "object"
+  },
+  "ImportFile": {
+    "additionalProperties": false,
+    "properties": {
+      "relative_path": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Relative Path",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      }
+    },
+    "required": [
+      "relative_path",
+      "size",
+      "sha256",
+      "media_type"
+    ],
+    "title": "ImportFile",
+    "type": "object"
+  },
+  "ImportRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256"
+    ],
+    "title": "ImportRecord",
+    "type": "object"
+  },
+  "ImportDetail": {
+    "$defs": {
+      "ImportFile": {
+        "additionalProperties": false,
+        "properties": {
+          "relative_path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relative_path",
+          "size",
+          "sha256",
+          "media_type"
+        ],
+        "title": "ImportFile",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
+      },
+      "files": {
+        "items": {
+          "$ref": "#/$defs/ImportFile"
+        },
+        "title": "Files",
+        "type": "array"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256"
+    ],
+    "title": "ImportDetail",
+    "type": "object"
+  },
+  "ImportResult": {
+    "$defs": {
+      "ArtifactView": {
+        "additionalProperties": false,
+        "description": "Artifact plus evidence metadata stored on its artifact_added event.\n\nHistorical artifacts whose event payload predates evidence classification\ndefault to ``other`` with no claimed capture time.",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_filename": {
+            "title": "Original Filename",
+            "type": "string"
+          },
+          "ingested_at": {
+            "title": "Ingested At",
+            "type": "string"
+          },
+          "source_event_id": {
+            "title": "Source Event Id",
+            "type": "string"
+          },
+          "evidence_kind": {
+            "default": "other",
+            "enum": [
+              "challenge_archive",
+              "analysis",
+              "execution",
+              "execution_output",
+              "flag_capture",
+              "platform_verification",
+              "source_code",
+              "other"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "capture_time_claim": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Capture Time Claim"
+          },
+          "source_event_type": {
+            "default": "artifact_added",
+            "title": "Source Event Type",
+            "type": "string"
+          },
+          "source_event_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Event Sequence"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "sha256",
+          "size",
+          "media_type",
+          "original_filename",
+          "source_event_id"
+        ],
+        "title": "ArtifactView",
+        "type": "object"
+      },
+      "ImportFile": {
+        "additionalProperties": false,
+        "properties": {
+          "relative_path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relative_path",
+          "size",
+          "sha256",
+          "media_type"
+        ],
+        "title": "ImportFile",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "title": "Import Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "original_artifact_id": {
+        "title": "Original Artifact Id",
+        "type": "string"
+      },
+      "original_filename": {
+        "title": "Original Filename",
+        "type": "string"
+      },
+      "extracted_file_count": {
+        "minimum": 0,
+        "title": "Extracted File Count",
+        "type": "integer"
+      },
+      "total_uncompressed_size": {
+        "minimum": 0,
+        "title": "Total Uncompressed Size",
+        "type": "integer"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "manifest_sha256": {
+        "title": "Manifest Sha256",
+        "type": "string"
+      },
+      "manifest_verified": {
+        "default": true,
+        "title": "Manifest Verified",
+        "type": "boolean"
+      },
+      "integrity_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Integrity Error"
+      },
+      "files": {
+        "items": {
+          "$ref": "#/$defs/ImportFile"
+        },
+        "title": "Files",
+        "type": "array"
+      },
+      "original_artifact": {
+        "$ref": "#/$defs/ArtifactView"
+      },
+      "import_event_id": {
+        "title": "Import Event Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "import_id",
+      "challenge_id",
+      "original_artifact_id",
+      "original_filename",
+      "extracted_file_count",
+      "total_uncompressed_size",
+      "created_at",
+      "manifest_sha256",
+      "original_artifact",
+      "import_event_id"
+    ],
+    "title": "ImportResult",
+    "type": "object"
+  },
+  "WriteupPreview": {
+    "additionalProperties": false,
+    "properties": {
+      "markdown": {
+        "title": "Markdown",
+        "type": "string"
+      },
+      "missing_requirements": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Missing Requirements",
+        "type": "array"
+      },
+      "event_count": {
+        "minimum": 0,
+        "title": "Event Count",
+        "type": "integer"
+      },
+      "artifact_count": {
+        "minimum": 0,
+        "title": "Artifact Count",
+        "type": "integer"
+      },
+      "completeness": {
+        "enum": [
+          "complete",
+          "incomplete"
+        ],
+        "title": "Completeness",
+        "type": "string"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "markdown",
+      "event_count",
+      "artifact_count",
+      "completeness"
+    ],
+    "title": "WriteupPreview",
+    "type": "object"
+  },
+  "WriteupDraft": {
+    "additionalProperties": false,
+    "description": "A human-edited Writeup saved by the player for one challenge.\n\nThis is intentionally distinct from the generated preview: content is\nplayer-authored, never represented as an observed execution or AI output.",
+    "properties": {
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "content": {
+        "title": "Content",
+        "type": "string"
+      },
+      "version": {
+        "minimum": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "sha256": {
+        "title": "Sha256",
+        "type": "string"
+      },
+      "size": {
+        "minimum": 0,
+        "title": "Size",
+        "type": "integer"
+      },
+      "saved_at": {
+        "title": "Saved At",
+        "type": "string"
+      },
+      "is_human_draft": {
+        "const": true,
+        "default": true,
+        "title": "Is Human Draft",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "challenge_id",
+      "content",
+      "version",
+      "sha256",
+      "size",
+      "saved_at"
+    ],
+    "title": "WriteupDraft",
+    "type": "object"
+  },
+  "WriteupDraftSave": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "maxLength": 4000000,
+        "title": "Content",
+        "type": "string"
+      },
+      "base_version": {
+        "minimum": 0,
+        "title": "Base Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "content",
+      "base_version"
+    ],
+    "title": "WriteupDraftSave",
+    "type": "object"
+  }
+}
