@@ -766,7 +766,7 @@ def create_app(
         return {
             "network_enabled": model_network_enabled(),
             "provider": "deepseek",
-            "model_id": os.environ.get("CTF_MODEL_ID", "deepseek-chat"),
+            "model_id": os.environ.get("CTF_MODEL_ID", "deepseek-flash"),
             "credentials_configured": bool(
                 os.environ.get(os.environ.get("CTF_MODEL_API_KEY_ENV", "DEEPSEEK_API_KEY"))
             ),
