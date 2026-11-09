@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import {
   request,
   upload,
@@ -16,6 +16,9 @@ import {
   draftKey,
   completeness,
   exportState,
+  flagConfirmationSummaries,
+  modelCallStatusLabel,
+  relevantModelCalls,
 } from "./domain";
 import type {
   Challenge,
@@ -25,6 +28,7 @@ import type {
   ImportRecord,
   ImportFile,
   Preview,
+  ModelCallRecord,
 } from "./domain";
 import "./style.css";
 import {
@@ -34,6 +38,16 @@ import {
   createDraftCache,
 } from "./drafts";
 import type { HumanDraft } from "./drafts";
+import {
+  aiAttachmentStateAfterSwitch,
+  aiConsentMatchesChallenge,
+  aiConsentTarget,
+  aiPanelStateAfterSwitch,
+  assertAIConsentForChallenge,
+  asyncResponseApplies,
+} from "./ai-consent";
+import ToolApprovalPanel from "./components/ai/ToolApprovalPanel.vue";
+import ModelServiceSettings from "./components/settings/ModelServiceSettings.vue";
 const draft = ref<DraftSession>();
 const challenges = ref<Challenge[]>([]),
   selected = ref<Challenge>(),
@@ -44,6 +58,7 @@ const challenges = ref<Challenge[]>([]),
 const busy = ref(""),
   error = ref(""),
   notice = ref(""),
+  settingsOpen = ref(false),
   tab = ref("overview"),
   progress = ref<number | null>(null),
   uploadStatus = ref(""),
@@ -51,8 +66,14 @@ const busy = ref(""),
   aiAnswer = ref(""),
   aiBusy = ref(false),
   aiTestBusy = ref(false),
-  aiConsent = ref(false),
+  aiConsentChallengeId = ref<string | null>(null),
+  aiSelectedEvidence = ref<string[]>([]),
+  aiAttachmentConsent = ref(false),
   aiStatus = ref<{network_enabled:boolean; provider:string; model_id:string; credentials_configured:boolean; execution_enabled:boolean}>(),
+  modelCalls = ref<ModelCallRecord[]>([]),
+  modelCallsError = ref(""),
+  flagInput = ref(""),
+  flagBusy = ref(false),
   integrity = ref<{
     valid: boolean;
     earliest_affected_sequence?: number | null;
@@ -102,11 +123,48 @@ const selectedId = computed(() => selected.value?.challenge_id),
   root = computed(
     () => "/challenges/" + encodeURIComponent(selectedId.value || ""),
   );
+// Consent is bound to the challenge that was active when it was checked.
+const aiConsent = computed<boolean>({
+  get: () =>
+    aiConsentMatchesChallenge(aiConsentChallengeId.value, selectedId.value),
+  set: (checked: boolean) => {
+    aiConsentChallengeId.value = aiConsentTarget(selectedId.value, checked);
+  },
+});
+let selectionGeneration = 0;
+const aiEvidenceChoices = computed(() => [
+  ...imports.value.flatMap((record) =>
+    record.manifest_verified === true
+      ? (record.files ?? []).map((file) => ({
+          key: JSON.stringify([record.import_id, file.relative_path, file.sha256]),
+          label: file.relative_path,
+          file: { import_id: record.import_id, relative_path: file.relative_path, sha256: file.sha256 },
+          artifact: null,
+        }))
+      : [],
+  ),
+  ...artifacts.value.filter((artifact) => artifact.evidence_kind !== "challenge_archive").map((artifact) => ({
+    key: artifact.artifact_id + ":" + artifact.sha256,
+    label: artifact.original_filename,
+    file: null,
+    artifact: { artifact_id: artifact.artifact_id, sha256: artifact.sha256 },
+  })),
+]);
+watch([aiQuestion, aiSelectedEvidence], () => {
+  aiConsentChallengeId.value = null;
+  aiAttachmentConsent.value = false;
+}, { deep: true, flush: "sync" });
 const suggestions = computed(() =>
     events.value.filter((e) => eventLabel(e).startsWith("ai_suggestion")),
   ),
   aiHistory = computed(() =>
     events.value.filter((e) => e.event_type === "agent_message"),
+  ),
+  flagSummaryList = computed(() => flagConfirmationSummaries(events.value)),
+  modelCallsUnfinished = computed(
+    () =>
+      modelCalls.value.filter((call) => call.response_status === "unknown")
+        .length,
   ),
   status = computed(() => completeness(preview.value, edited.value));
 let previewVersion = 0;
@@ -145,7 +203,20 @@ async function loadProject() {
     } else throw e;
   }
 }
+/** True while a response still belongs to the currently selected challenge. */
+function responseIsCurrent(
+  challengeId: string | null | undefined,
+  generation: number,
+): boolean {
+  return asyncResponseApplies(
+    { challengeId, generation },
+    { challengeId: selectedId.value, generation: selectionGeneration },
+  );
+}
 async function refresh() {
+  const cid = selectedId.value;
+  if (!cid) return;
+  const generation = selectionGeneration;
   clearFile();
   imports.value = [];
   const p = root.value;
@@ -154,13 +225,18 @@ async function refresh() {
     request<Artifact[]>(p + "/artifacts"),
     request<ImportRecord[]>(p + "/imports"),
   ]);
-  events.value = es.sort((a, b) => a.sequence - b.sequence);
-  artifacts.value = as;
-  imports.value = await loadImportDetails(im, (id) =>
+  // A slow A response must never overwrite the events/artifacts of B.
+  if (!responseIsCurrent(cid, generation)) return;
+  const detailedImports = await loadImportDetails(im, (id) =>
     request<ImportRecord>(p + "/imports/" + encodeURIComponent(id)),
   );
+  if (!responseIsCurrent(cid, generation)) return;
+  events.value = es.sort((a, b) => a.sequence - b.sequence);
+  artifacts.value = as;
+  imports.value = detailedImports;
   preview.value = undefined;
   integrity.value = undefined;
+  await loadModelCalls();
 }
 async function reload() {
   challenges.value = await request<Challenge[]>("/challenges");
@@ -170,6 +246,20 @@ async function reload() {
 }
 async function select(c: Challenge) {
   if (selected.value?.challenge_id === c.challenge_id) return;
+  // A confirmation and a draft question belong to the old challenge only.
+  const clearedAI = aiPanelStateAfterSwitch();
+  const clearedAttachments = aiAttachmentStateAfterSwitch();
+  aiConsentChallengeId.value = clearedAI.consentChallengeId;
+  aiQuestion.value = clearedAI.question;
+  aiSelectedEvidence.value = clearedAttachments.selectedEvidenceKeys;
+  aiAttachmentConsent.value = clearedAttachments.attachmentConsent;
+  aiAnswer.value = "";
+  selectionGeneration += 1;
+  // Tool proposals, model audit rows and the Flag input are per challenge too;
+  // an old-challenge response is discarded by the generation checks.
+  modelCalls.value = [];
+  modelCallsError.value = "";
+  flagInput.value = "";
   selected.value = c;
   clearFile();
   events.value = [];
@@ -219,7 +309,7 @@ async function select(c: Challenge) {
 }
 function formatIncludedFiles(value: unknown): string {
   if (!Array.isArray(value) || value.length === 0) {
-    return "无（仅使用题目描述、规则摘要和近期记录）";
+    return "无（仅发送题目文字与允许的对话上下文）";
   }
   return value.map((item) => String(item)).join("、");
 }
@@ -234,6 +324,27 @@ async function loadAIStatus() {
     }>("/model/status");
   } catch {
     aiStatus.value = undefined;
+  }
+}
+async function loadModelCalls() {
+  const cid = selectedId.value;
+  const generation = selectionGeneration;
+  if (!cid) {
+    modelCalls.value = [];
+    modelCallsError.value = "";
+    return;
+  }
+  try {
+    const result = await request<{ calls?: ModelCallRecord[] }>(
+      "/model/calls",
+    );
+    if (!responseIsCurrent(cid, generation)) return;
+    modelCalls.value = relevantModelCalls(result.calls ?? [], cid);
+    modelCallsError.value = "";
+  } catch (e) {
+    if (!responseIsCurrent(cid, generation)) return;
+    modelCalls.value = [];
+    modelCallsError.value = "读取模型调用审计失败：" + String(e);
   }
 }
 async function testAIConnection() {
@@ -256,28 +367,52 @@ async function testAIConnection() {
   } finally {
     aiTestBusy.value = false;
     await loadAIStatus();
+    await loadModelCalls();
   }
 }
 async function askAI() {
-  if (!selectedId.value || !aiQuestion.value.trim() || !aiConsent.value) return;
+  const cid = selectedId.value;
+  if (!cid || !aiQuestion.value.trim()) return;
+  // Re-check the binding at request time; visual checkbox state alone is not enough.
+  try {
+    assertAIConsentForChallenge(aiConsentChallengeId.value, cid);
+  } catch {
+    error.value = "外发确认不属于当前题目，请重新勾选后再发送。";
+    return;
+  }
+  const question = aiQuestion.value.trim();
+  const generation = selectionGeneration;
+  const selections = aiEvidenceChoices.value.filter((item) => aiSelectedEvidence.value.includes(item.key));
+  if (aiSelectedEvidence.value.length !== selections.length || (selections.length && !aiAttachmentConsent.value)) {
+    error.value = "附件范围已改变，请重新选择并确认。";
+    return;
+  }
+  const confirmAttachments = aiAttachmentConsent.value;
+  aiConsentChallengeId.value = null;
+  aiAttachmentConsent.value = false;
   aiBusy.value = true;
   error.value = "";
   notice.value = "";
   try {
+    const requestRoot = "/challenges/" + encodeURIComponent(cid);
     const result = await request<{
       event_id:string; answer:string; provider_id:string; model_id:string;
       included_files:string[]; verification_status:string;
-    }>(root.value + "/ai/chat", {
-      question: aiQuestion.value.trim(),
+    }>(requestRoot + "/ai/chat", {
+      question,
       confirm_external_processing: true,
+      consent_challenge_id: cid,
+      selected_files: selections.flatMap((item) => item.file ? [item.file] : []),
+      selected_artifacts: selections.flatMap((item) => item.artifact ? [item.artifact] : []),
+      confirm_attachments: confirmAttachments,
     }, "POST", "/api", 120000);
+    if (selectionGeneration !== generation) return;
     aiAnswer.value = result.answer;
-    aiQuestion.value = "";
-    aiConsent.value = false;
+    if (aiQuestion.value.trim() === question) aiQuestion.value = "";
     notice.value = "AI 建议已记录到事件时间线；未执行任何命令。";
     await refresh();
   } catch (e) {
-    error.value = String(e);
+    if (selectionGeneration === generation) error.value = String(e);
   } finally {
     aiBusy.value = false;
   }
@@ -465,6 +600,31 @@ async function copyCommand() {
 async function verify() {
   integrity.value = await request(root.value + "/integrity");
 }
+async function confirmFlag() {
+  const cid = selectedId.value;
+  const flag = flagInput.value.trim();
+  if (!cid || !flag || flagBusy.value) return;
+  flagBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    await request(
+      "/challenges/" + encodeURIComponent(cid) + "/flag-confirmation",
+      { flag, confirmed_by: "local-user" },
+      "POST",
+    );
+    // A response for the old challenge never clears or rewrites the new one.
+    if (selectedId.value !== cid) return;
+    flagInput.value = "";
+    notice.value =
+      "Flag 已人工确认（仅记录 SHA-256/长度）；平台验证仍需另行截图。";
+    await refresh();
+  } catch (e) {
+    if (selectedId.value === cid) error.value = String(e);
+  } finally {
+    flagBusy.value = false;
+  }
+}
 function print() {
   window.print();
 }
@@ -497,12 +657,24 @@ onUnmounted(clearFile);
       >
     </div>
     <span class="pill">● 本地工作台 · 自动执行关闭</span>
+    <button
+      type="button"
+      class="settings-open"
+      :aria-expanded="settingsOpen"
+      @click="settingsOpen = true"
+    >
+      模型服务设置
+    </button>
   </header>
-  <div v-if="error" class="banner error" role="alert">
+  <div v-if="error && !settingsOpen" class="banner error" role="alert">
     {{ error }} <button @click="error = ''">关闭</button>
   </div>
-  <div v-if="notice" class="banner" role="status">{{ notice }}</div>
-  <main class="layout" :aria-busy="!!busy">
+  <div v-if="notice && !settingsOpen" class="banner" role="status">{{ notice }}</div>
+  <ModelServiceSettings
+    v-if="settingsOpen"
+    @close="settingsOpen = false; guard('刷新模型状态', loadAIStatus)"
+  />
+  <main v-if="!settingsOpen" class="layout" :aria-busy="!!busy">
     <aside class="sidebar">
       <div class="section-title">
         比赛与题目
@@ -878,12 +1050,26 @@ docker run --rm --network none ctf-local</pre
           <label>向 AI 提问
             <textarea v-model="aiQuestion" maxlength="8000" rows="5" placeholder="例如：请分析这道 Web 题的入口、可能的漏洞点，并给出逐步验证思路。"></textarea>
           </label>
+          <details v-if="selected.ai_usage_level === 'A2' && aiEvidenceChoices.length">
+            <summary>本轮附件范围（可选，最多 12 个）</summary>
+            <label class="consent" v-for="item in aiEvidenceChoices" :key="item.key">
+              <input type="checkbox" v-model="aiSelectedEvidence" :value="item.key" />
+              {{ item.label }}
+            </label>
+            <label class="consent" v-if="aiSelectedEvidence.length">
+              <input type="checkbox" v-model="aiAttachmentConsent" />
+              我确认外发本轮明确选中的附件文字或受限静态摘要。
+            </label>
+          </details>
+          <p v-if="selected.ai_usage_level === 'A1'" class="muted">
+            A1 仅允许文字上下文。可在问题中粘贴你选定的文字。
+          </p>
           <label class="consent">
             <input type="checkbox" v-model="aiConsent" />
-            我确认将本题描述、项目比赛规则摘要、最近 20 条操作/证据记录、已导入文本文件及符合限制的二进制静态元数据/字符串发送给配置的模型服务进行处理。
+            我确认将本题描述、规则摘要、问题和同一授权范围内的近期对话发送给配置的模型服务处理。
           </label>
           <p class="muted">不会发送二进制附件原文，也不会执行二进制文件。符合限制的小型 ELF/PE 等文件仅提取头部信息和可打印字符串。导入文件会先校验 SHA-256，并进行常见密钥格式脱敏；仍请勿上传密码、个人隐私或无权外传的材料。</p>
-          <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
+          <button class="primary" :disabled="aiBusy || !aiConsent || !aiQuestion.trim() || aiSelectedEvidence.length > 12 || (aiSelectedEvidence.length > 0 && !aiAttachmentConsent) || selected.ai_usage_level === 'unknown' || selected.ai_usage_level === 'A0' || !aiStatus?.network_enabled || !aiStatus?.credentials_configured" @click="askAI">
             {{ aiBusy ? '正在请求模型…' : '发送问题并获取分析' }}
           </button>
           <section v-if="aiHistory.length" class="ai-answer">
@@ -898,6 +1084,102 @@ docker run --rm --network none ctf-local</pre
               <small>关联事件 #{{ turn.sequence }} · 未执行 · 未验证建议</small>
             </article>
             <p class="muted">请自行检查建议，手动执行后再将真实结果和证据补录到工作台。</p>
+          </section>
+          <ToolApprovalPanel
+            :challenge-id="selectedId || null"
+            :ai-usage-level="selected.ai_usage_level"
+            :refresh-token="events.length"
+            @changed="guard('刷新工具状态', refresh)"
+          />
+          <section class="model-audit">
+            <div class="section-title">
+              <h4>模型调用审计（独立账本）</h4>
+              <button
+                type="button"
+                :disabled="!!busy"
+                @click="guard('刷新模型审计', loadModelCalls)"
+              >
+                刷新审计
+              </button>
+            </div>
+            <p class="muted">
+              审计事实来自 GET /api/model/calls（独立的 model-audit.sqlite3），与题目事件分开记录；
+              此处只显示调用 ID、目的、模型、时间与状态，不显示问题或回答内容。
+            </p>
+            <p v-if="modelCallsError" class="error" role="alert">
+              {{ modelCallsError }}
+            </p>
+            <p v-if="!modelCalls.length" class="muted">
+              本题暂无模型调用记录（或尚未写入审计账本）。
+            </p>
+            <p v-else-if="modelCallsUnfinished" class="warning" role="status">
+              存在 {{ modelCallsUnfinished }} 条未终结的模型调用；导出披露会因此标记不完整。
+            </p>
+            <ul v-if="modelCalls.length" class="model-calls">
+              <li
+                v-for="call in modelCalls.slice(0, 8)"
+                :key="call.call_id"
+                class="model-call"
+                :data-status="call.response_status"
+              >
+                <strong>{{ modelCallStatusLabel(call.response_status) }}</strong>
+                <span>
+                  {{ call.synthetic ? "合成连通测试" : "题目对话" }} ·
+                  {{ call.provider_id }} · {{ call.model_id }}
+                </span>
+                <small>
+                  调用 ID {{ call.call_id }} · 发起 {{ call.requested_at }} ·
+                  {{ call.completed_at ? "完成 " + call.completed_at : "尚未终结" }}
+                </small>
+                <small v-if="call.error_category" class="warning">
+                  错误类别：{{ call.error_category }}
+                </small>
+              </li>
+            </ul>
+            <p v-if="modelCalls.length > 8" class="muted">
+              仅显示最近 8 条，共 {{ modelCalls.length }} 条。
+            </p>
+          </section>
+          <section class="flag-confirmation">
+            <h4>人工确认 Flag</h4>
+            <p class="muted">
+              仅保存 Flag 的 SHA-256 与长度，不保存、不显示明文，也不代表平台验证通过；
+              平台验证仍需另行截图。
+            </p>
+            <label
+              >输入已确认的 Flag<input
+                v-model="flagInput"
+                maxlength="500"
+                autocomplete="off"
+                placeholder="输入已确认的 Flag"
+            /></label>
+            <button
+              type="button"
+              class="primary"
+              :disabled="!flagInput.trim() || flagBusy || !!busy"
+              @click="guard('确认 Flag', confirmFlag)"
+            >
+              {{ flagBusy ? "正在记录…" : "记录人工确认" }}
+            </button>
+            <div v-if="flagSummaryList.length" class="flag-records">
+              <h5>本题 Flag 人工确认记录（仅摘要）</h5>
+              <article
+                v-for="(flagRecord, index) in flagSummaryList"
+                :key="index"
+                class="flag-record"
+              >
+                <code>SHA-256 {{ flagRecord.flag_sha256_prefix }}</code>
+                <small
+                  >长度 {{ flagRecord.flag_length }} · 确认人
+                  {{ flagRecord.confirmed_by }} ·
+                  {{ flagRecord.occurred_at }}</small
+                >
+                <small class="warning"
+                  >platform_verified=false ·
+                  非平台验证结果，不构成向平台提交成功的声明</small
+                >
+              </article>
+            </div>
           </section>
         </section>
         <section v-show="tab === 'timeline'" class="panel">
@@ -1067,6 +1349,25 @@ docker run --rm --network none ctf-local</pre
                 {{ m }}
               </li>
             </ul>
+            <div
+              v-if="preview?.requirements?.length"
+              class="requirement-matrix"
+            >
+              <h4>完整性判定矩阵</h4>
+              <ul>
+                <li
+                  v-for="row in preview.requirements"
+                  :key="row.code"
+                  :class="row.status"
+                >
+                  <strong>{{ row.code }}</strong> · {{ row.status }} ·
+                  {{ row.reason }}
+                  <span v-if="row.remediation">
+                    （补充方式：{{ row.remediation }}）
+                  </span>
+                </li>
+              </ul>
+            </div>
             <label
               >Markdown 人工编辑<textarea
                 class="markdown-editor"
@@ -1094,7 +1395,10 @@ docker run --rm --network none ctf-local</pre
       <h3>分析与记录</h3>
       <div class="notice">
         <strong>人工执行模式</strong>
-        <p>工具执行、模型联网和自动 Flag 提交均未启用。</p>
+        <p>
+          只读工具须人工逐步批准并手动执行；不执行 Shell、不访问网络、不写文件。自动 Flag
+          提交未启用。
+        </p>
       </div>
       <div v-if="selected" class="notice">
         <strong>AI {{ selected.ai_usage_level || "unknown" }}</strong>

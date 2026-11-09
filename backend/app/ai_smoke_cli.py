@@ -1,71 +1,90 @@
-"""Explicit synthetic DeepSeek connectivity smoke test.
-
-No challenge description, attachment, or user content is sent. The call is
-recorded in a separate local SQLite database under CTF_DATA_DIR.
-"""
-from __future__ import annotations
+"""Run an audited fixed synthetic prompt with explicit networking consent."""
 
 import argparse
 import asyncio
 import os
 from pathlib import Path
+import tempfile
 
-from .ai_assistant import build_deepseek_provider, model_network_enabled
-from .models import Challenge
-from .providers import Message, ModelRequest, ProviderError, recorded_complete
-from .store import Store
+from .ai_assistant import build_deepseek_provider, test_deepseek_connection
+from .model_calls import ModelCallJournal, model_network_enabled, safe_error_code
+from .providers import ProviderError
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Send a synthetic OK prompt to the configured DeepSeek endpoint."
-    )
-    parser.add_argument(
-        "--allow-model-network",
-        action="store_true",
-        help="Explicitly permit this synthetic network request.",
-    )
-    args = parser.parse_args()
-    if not args.allow_model_network:
+def run_smoke(parser, allow_model_network, provider_factory, data_dir=None):
+    if not allow_model_network:
         parser.error("Explicit --allow-model-network required")
     if not model_network_enabled():
         parser.error("Set CTF_MODEL_NETWORK_ENABLED=true in this process environment")
-    configured_root = os.environ.get("CTF_DATA_DIR")
-    if not configured_root:
-        parser.error("Set CTF_DATA_DIR to a dedicated local data directory before running the smoke test")
-    data_root = Path(configured_root)
-    if not data_root.is_absolute():
-        parser.error("CTF_DATA_DIR must be an absolute path; refusing an ambiguous relative data location")
-    store = Store(data_root / "model-smoke.sqlite3")
-    challenge = Challenge(
-        name="Synthetic model connectivity test",
-        category="Misc",
-        ai_usage_level="A2",
-    )
-    store.create(challenge)
+    value = data_dir or os.environ.get("CTF_DATA_DIR")
+    if not value or not Path(value).is_absolute():
+        parser.error("CTF_DATA_DIR must be an explicit absolute smoke-test directory")
     try:
+        journal = ModelCallJournal(Path(value) / "model-audit.sqlite3")
+    except ProviderError:
+        parser.error("Unsafe model audit path")
+    root = journal.path.parent
+    if any((parent / "workbench.sqlite3").exists() for parent in root.parents):
+        parser.error("Use a separate smoke-test directory outside workbench data")
+    if any(
+        (root / name).exists()
+        for name in (
+            "workbench.sqlite3",
+            "project.json",
+            "artifacts",
+            "challenges",
+            "writeups",
+        )
+    ):
+        parser.error(
+            "Use a separate smoke-test directory, not a workbench data directory"
+        )
+    old_temp = tempfile.tempdir
+    old_env = {name: os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP")}
+    try:
+        provider = provider_factory()
+        root.mkdir(parents=True, exist_ok=True)
+        smoke_tmp = tempfile.mkdtemp(prefix="model-smoke-tmp-", dir=root)
+        tempfile.tempdir = smoke_tmp
+        os.environ.update({name: smoke_tmp for name in old_env})
         response = asyncio.run(
-            recorded_complete(
-                build_deepseek_provider(),
-                ModelRequest(
-                    messages=[
-                        Message(
-                            role="user",
-                            content="Reply with OK. This is a synthetic connectivity test; no user-provided content is included.",
-                        )
-                    ]
-                ),
-                store,
-                challenge.challenge_id,
+            test_deepseek_connection(
+                journal,
+                provider,
             )
         )
     except ProviderError as error:
-        print("DeepSeek connectivity:", error.code)
+        print("Model connectivity:", safe_error_code(error))
         raise SystemExit(1) from None
-    print(
-        "DeepSeek connectivity: success. "
-        f"Provider={response.provider_id}; model={response.model_id}. "
-        "Only synthetic content was sent; response text was not printed."
+    except Exception:
+        print("Model connectivity: internal_error")
+        raise SystemExit(1) from None
+    finally:
+        tempfile.tempdir = old_temp
+        for name, previous in old_env.items():
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
+    print("Model connectivity: success. Synthetic call ID:", response.audit_call_id)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Send one fixed synthetic DeepSeek prompt."
+    )
+    parser.add_argument("--allow-model-network", action="store_true")
+    parser.add_argument(
+        "--data-dir",
+        default=None,
+        help="Explicit absolute smoke-test directory (overrides CTF_DATA_DIR).",
+    )
+    args = parser.parse_args()
+    run_smoke(
+        parser,
+        args.allow_model_network,
+        build_deepseek_provider,
+        data_dir=args.data_dir,
     )
 
 

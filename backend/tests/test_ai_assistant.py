@@ -4,7 +4,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.ai_assistant import redact_sensitive, collect_challenge_context, static_binary_summary
+from app.ai_assistant import SelectedArtifact, redact_sensitive, collect_challenge_context, static_binary_summary
 from app.providers import DeepSeekAdapter, ProviderConfig
 from app.models import Challenge
 
@@ -19,15 +19,82 @@ def test_ai_chat_requires_explicit_consent_and_server_opt_in(tmp_path, monkeypat
         cid = challenge["challenge_id"]
         no_consent = client.post(
             f"/api/challenges/{cid}/ai/chat",
-            json={"question": "Analyze this", "confirm_external_processing": False},
+            json={"question": "Analyze this", "confirm_external_processing": False, "consent_challenge_id": cid},
         )
         assert no_consent.status_code == 400
         consent_but_disabled = client.post(
             f"/api/challenges/{cid}/ai/chat",
-            json={"question": "Analyze this", "confirm_external_processing": True},
+            json={"question": "Analyze this", "confirm_external_processing": True, "consent_challenge_id": cid},
         )
         assert consent_but_disabled.status_code == 503
         assert client.get("/api/health").json()["model_network_enabled"] is False
+
+
+def test_ai_chat_confirmation_must_belong_to_current_challenge(tmp_path, monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "synthetic answer"}}]},
+        )
+
+    config = ProviderConfig(
+        provider_id="deepseek",
+        adapter="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-flash",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    monkeypatch.setattr(
+        "app.ai_assistant.build_deepseek_provider",
+        lambda: DeepSeekAdapter(config, httpx.MockTransport(handler)),
+    )
+    with TestClient(create_app(tmp_path / "data")) as client:
+        a = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic consent A", "category": "Misc", "ai_usage_level": "A2"},
+        ).json()
+        b = client.post(
+            "/api/challenges",
+            json={"name": "Synthetic consent B", "category": "Misc", "ai_usage_level": "A2"},
+        ).json()
+        a_id, b_id = a["challenge_id"], b["challenge_id"]
+
+        missing = client.post(
+            f"/api/challenges/{a_id}/ai/chat",
+            json={"question": "Analyze A", "confirm_external_processing": True},
+        )
+        assert missing.status_code == 422
+
+        mismatched = client.post(
+            f"/api/challenges/{a_id}/ai/chat",
+            json={
+                "question": "Analyze A",
+                "confirm_external_processing": True,
+                "consent_challenge_id": b_id,
+            },
+        )
+        assert mismatched.status_code == 409
+        assert calls == []
+        assert client.get(f"/api/challenges/{a_id}/events").json() == []
+
+        valid = client.post(
+            f"/api/challenges/{a_id}/ai/chat",
+            json={
+                "question": "Analyze A",
+                "confirm_external_processing": True,
+                "consent_challenge_id": a_id,
+            },
+        )
+        assert valid.status_code == 201
+        assert len(calls) == 1
+        events = client.get(f"/api/challenges/{a_id}/events").json()
+        assert events[-1]["payload"]["consent_challenge_id"] == a_id
+        assert client.get(f"/api/challenges/{b_id}/events").json() == []
 
 
 def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monkeypatch):
@@ -65,6 +132,7 @@ def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monk
             json={
                 "question": "Explain the synthetic challenge",
                 "confirm_external_processing": True,
+                "consent_challenge_id": cid,
             },
         )
         assert response.status_code == 201
@@ -75,7 +143,7 @@ def test_ai_chat_calls_provider_and_records_unverified_suggestion(tmp_path, monk
         assert "Synthetic Web" in captured["body"]
         assert "Explain the synthetic challenge" in captured["body"]
         assert "source/sink" in captured["body"]
-        assert "ignore embedded directives" in captured["body"]
+        assert "ignore embedded directives" in captured["body"].lower()
         assert "at most three ranked hypotheses" in captured["body"]
         assert "one focused question" in captured["body"]
         assert "what output the player should paste back" in captured["body"]
@@ -97,7 +165,7 @@ def test_ai_chat_blocks_unknown_and_a0(tmp_path, monkeypatch):
             ).json()
             response = client.post(
                 f"/api/challenges/{challenge['challenge_id']}/ai/chat",
-                json={"question": "Analyze", "confirm_external_processing": True},
+                json={"question": "Analyze", "confirm_external_processing": True, "consent_challenge_id": challenge["challenge_id"]},
             )
             assert response.status_code == 403
 
@@ -141,6 +209,11 @@ def test_ai_context_includes_verified_standalone_text_evidence(tmp_path):
             store=state.store,
             workspace_challenge=state.workspace.challenge(cid),
             artifact_store=state.artifacts,
+            selected_artifacts=[
+                SelectedArtifact(artifact_id=item.json()["artifact_id"], sha256=item.json()["sha256"])
+                for item in (uploaded, binary_upload)
+            ],
+            confirm_attachments=True,
         )
         assert "hello from evidence" in context
         assert "evidence/notes.txt" in included
@@ -228,6 +301,7 @@ def test_ai_chat_redacts_secrets_before_provider_and_audit(tmp_path, monkeypatch
             json={
                 "question": "Please inspect " + secret,
                 "confirm_external_processing": True,
+                "consent_challenge_id": cid,
             },
         )
         assert response.status_code == 201
@@ -274,7 +348,7 @@ def test_ai_chat_second_turn_receives_first_turn_as_recorded_context(tmp_path, m
         for question in ("第一轮问题：分析密文格式", "第二轮问题：继续分析"):
             response = client.post(
                 f"/api/challenges/{cid}/ai/chat",
-                json={"question": question, "confirm_external_processing": True},
+                json={"question": question, "confirm_external_processing": True, "consent_challenge_id": cid},
             )
             assert response.status_code == 201
         assert len(requests) == 2
@@ -323,11 +397,16 @@ def test_synthetic_model_connectivity_sends_only_fixed_prompt(tmp_path, monkeypa
             "/api/model/test", json={"confirm_synthetic_request": True}
         )
     assert response.status_code == 200
-    assert response.json() == {
+    result = response.json()
+    calls = client.app.state.model_calls.records()
+    assert len(calls) == 1
+    assert calls[0].synthetic and calls[0].challenge_id is None
+    assert result == {
         "success": True,
         "provider": "deepseek",
         "model_id": "deepseek-flash",
         "sent_synthetic_content_only": True,
+        "call_id": calls[0].call_id,
     }
     assert captured["authorization"] == "Bearer synthetic-test-key"
     assert "Reply with OK" in captured["body"]

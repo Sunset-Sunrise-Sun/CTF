@@ -161,6 +161,101 @@ class Store:
                 db, cid, actor, event_type, payload, artifact_ids=artifact_ids
             )
 
+    def append_event(
+        self,
+        db,
+        cid: str,
+        actor: str,
+        event_type: str,
+        payload: dict,
+        artifact_ids: tuple[str, ...] = (),
+    ) -> Event:
+        """Append an event inside a caller-owned transaction.
+
+        This is the composable primitive used by tool proposal/approval/execution
+        so the state row and its event commit or roll back together.
+        """
+        return self._append_event(
+            db, cid, actor, event_type, payload, artifact_ids=artifact_ids
+        )
+
+    def add_artifact_with_db(
+        self,
+        db,
+        cid: str,
+        *,
+        sha256: str,
+        size: int,
+        media_type: str,
+        original_filename: str,
+        evidence_kind: str | None = None,
+        capture_time_claim: str | None = None,
+        actor: str = "tool",
+        payload_extra: dict | None = None,
+    ) -> tuple[Artifact, Event | None]:
+        """Insert artifact metadata and its ``artifact_added`` event in ``db``.
+
+        The caller owns the transaction (BEGIN IMMEDIATE ... COMMIT).  Existing
+        bytes in the same challenge are deduplicated and return ``None`` for the
+        event, exactly like :meth:`add_artifact`.
+        """
+        existing = db.execute(
+            "SELECT " + ARTIFACT_COLUMNS + " FROM artifacts "
+            "WHERE challenge_id=? AND sha256=?",
+            (cid, sha256),
+        ).fetchone()
+        if existing is not None:
+            return _artifact_from_row(existing), None
+        artifact_id = uid()
+        ingested_at = now()
+        payload = {
+            "artifact_id": artifact_id,
+            "sha256": sha256,
+            "size": size,
+            "media_type": media_type,
+        }
+        if evidence_kind is not None:
+            payload["evidence_kind"] = evidence_kind
+        if capture_time_claim is not None:
+            payload["capture_time_claim"] = capture_time_claim
+        if payload_extra:
+            payload.update(payload_extra)
+        event = self._append_event(
+            db,
+            cid,
+            actor,
+            "artifact_added",
+            payload,
+            artifact_ids=(artifact_id,),
+        )
+        db.execute(
+            "INSERT INTO artifacts (" + ARTIFACT_COLUMNS + ") "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                artifact_id,
+                cid,
+                sha256,
+                size,
+                media_type,
+                original_filename,
+                ingested_at,
+                event.event_id,
+            ),
+        )
+        return (
+            Artifact(
+                artifact_id=artifact_id,
+                challenge_id=cid,
+                sha256=sha256,
+                size=size,
+                media_type=media_type,
+                original_filename=original_filename,
+                ingested_at=ingested_at,
+                source_event_id=event.event_id,
+            ),
+            event,
+        )
+
     def add_artifact(
         self,
         cid: str,

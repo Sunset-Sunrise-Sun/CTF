@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import json
 import os
 import httpx
@@ -11,10 +12,8 @@ from app.providers import (
     Message,
     ToolDefinition,
     Capabilities,
-    proposals,
 )
-from app.models import Scope, ToolApproval
-from app.tools import DisabledBroker
+from app.ai_smoke_cli import run_smoke
 
 
 def config(adapter="openai-compatible", **kw):
@@ -70,30 +69,11 @@ def test_adapter_contract(adapter, monkeypatch):
         return
     response = asyncio.run(provider.complete(request()))
     assert response.provider_id == adapter
-    proposal = proposals(response, "synthetic", Scope())[0]
-    assert proposal.tool_name == "metadata"
-    with pytest.raises(PermissionError):
-        asyncio.run(
-            DisabledBroker().execute(
-                proposal,
-                ToolApproval(
-                    proposal_id=proposal.proposal_id,
-                    approving_user="synthetic",
-                    approved=False,
-                ),
-            )
-        )
-    with pytest.raises(PermissionError, match="No tools"):
-        asyncio.run(
-            DisabledBroker().execute(
-                proposal,
-                ToolApproval(
-                    proposal_id=proposal.proposal_id,
-                    approving_user="synthetic",
-                    approved=True,
-                ),
-            )
-        )
+    # The provider may return wire tool calls; only the audited AI gateway is
+    # allowed to decide what happens to them (it rejects them as unexpected).
+    assert response.tool_calls[0].name == "metadata"
+    assert response.tool_calls[0].call_id == "call1"
+    assert response.tool_calls[0].arguments == {"path": "sample"}
 
 
 def test_capabilities_and_switch():
@@ -169,6 +149,8 @@ def test_stream(monkeypatch):
     reason="Requires explicit opt-in and legal provider credentials",
 )
 def test_live_provider():
-    cfg = ProviderConfig.model_validate_json(os.environ["CTF_LIVE_PROVIDER_CONFIG"])
-    provider = ProviderRegistry([cfg], cfg.provider_id).get()
-    assert asyncio.run(provider.complete(request())).text
+    def build():
+        cfg = ProviderConfig.model_validate_json(os.environ["CTF_LIVE_PROVIDER_CONFIG"])
+        return ProviderRegistry([cfg], cfg.provider_id).get()
+
+    run_smoke(argparse.ArgumentParser(), True, build)
