@@ -1,23 +1,28 @@
+"""Unified model-call audit tests (single independent journal).
+
+These tests replace the retired DeepSeek `Store.model_calls` tests; the only
+audit source is now `ModelCallJournal` in model-audit.sqlite3.
+"""
+
 import asyncio
+import json
 
 import pytest
 
-from app.models import Challenge, Scope
+from app.model_calls import ModelCallJournal, ModelCallRecord, audited_complete
+from app.models import Challenge, now
 from app.providers import (
     Message,
     ModelRequest,
     ModelResponse,
     ProviderConfig,
     ProviderError,
-    ToolCall,
-    proposals,
-    recorded_complete,
 )
 from app.store import Store
 
 
-class SyntheticProvider:
-    config = ProviderConfig(
+def config() -> ProviderConfig:
+    return ProviderConfig(
         provider_id="synthetic",
         adapter="openai-compatible",
         base_url="https://synthetic.invalid",
@@ -25,7 +30,10 @@ class SyntheticProvider:
         api_key_env="SYNTHETIC_AUDIT_KEY",
     )
 
+
+class SyntheticProvider:
     def __init__(self, error=None):
+        self.config = config()
         self.error = error
         self.response = ModelResponse(
             provider_id="synthetic",
@@ -39,113 +47,157 @@ class SyntheticProvider:
         return self.response
 
 
-@pytest.mark.parametrize(
-    "error,status",
-    [
-        (None, "success"),
-        (ProviderError("rate_limited"), "rate_limited"),
-        (RuntimeError("synthetic sensitive error"), "internal_error"),
-    ],
-)
-def test_audit_outcomes(tmp_path, monkeypatch, error, status):
-    monkeypatch.setenv("SYNTHETIC_AUDIT_KEY", "synthetic credential sentinel")
+def make_store(tmp_path):
     store = Store(tmp_path / "audit.db")
     challenge = Challenge(name="Synthetic audit", category="Misc")
     store.create(challenge)
-    provider = SyntheticProvider(error)
+    return store, challenge
+
+
+@pytest.fixture(autouse=True)
+def network_enabled(monkeypatch):
+    monkeypatch.setenv("CTF_MODEL_NETWORK_ENABLED", "true")
+    monkeypatch.setenv("SYNTHETIC_AUDIT_KEY", "synthetic credential sentinel")
+
+
+def test_audited_success_writes_start_finish_and_event(tmp_path):
+    store, challenge = make_store(tmp_path)
+    journal = ModelCallJournal(tmp_path / "model-audit.sqlite3")
+    provider = SyntheticProvider()
     request = ModelRequest(
         messages=[Message(role="user", content="synthetic sensitive request")]
     )
-    if error is None:
-        result = asyncio.run(
-            recorded_complete(provider, request, store, challenge.challenge_id)
+    response = asyncio.run(
+        audited_complete(
+            provider,
+            request,
+            journal,
+            challenge_id=challenge.challenge_id,
+            store=store,
+            purpose="challenge_chat",
+            synthetic=False,
+            data_scope="A2:text_only",
         )
-        assert result is provider.response
-    else:
-        with pytest.raises(type(error)) as caught:
-            asyncio.run(
-                recorded_complete(provider, request, store, challenge.challenge_id)
+    )
+    assert response.audit_call_id
+    records = journal.records(challenge.challenge_id)
+    assert len(records) == 1
+    record = records[0]
+    assert record.call_id == response.audit_call_id
+    assert record.response_status == "success"
+    assert record.completed_at
+    assert "synthetic sensitive request" not in json.dumps(record.model_dump())
+    events = store.events(challenge.challenge_id)
+    assert [event.event_type for event in events] == ["model_call"]
+    assert events[0].payload["call_id"] == response.audit_call_id
+    assert events[0].payload["response_status"] == "success"
+    assert store.verify(challenge.challenge_id)["valid"]
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [
+        (ProviderError("rate_limited"), "rate_limited"),
+        (ProviderError("timeout"), "timeout"),
+    ],
+)
+def test_audited_provider_error_is_terminal_and_evented(tmp_path, error, status):
+    store, challenge = make_store(tmp_path)
+    journal = ModelCallJournal(tmp_path / "model-audit.sqlite3")
+    provider = SyntheticProvider(error)
+    with pytest.raises(ProviderError) as caught:
+        asyncio.run(
+            audited_complete(
+                provider,
+                ModelRequest(messages=[Message(role="user", content="synthetic")]),
+                journal,
+                challenge_id=challenge.challenge_id,
+                store=store,
+                purpose="challenge_chat",
+                synthetic=False,
             )
-        assert caught.value is error  # Preserve the original exception instance.
-    assert_audit(store, challenge.challenge_id, status)
-
-
-def assert_audit(store, cid, status):
-    events = store.events(cid)
-    assert len(events) == 1
-    event = events[0]
-    assert event.event_type == "model_call" and event.actor == "system"
-    assert set(event.payload) == {
-        "provider_id",
-        "model_id",
-        "requested_at",
-        "response_status",
-    }
-    assert event.payload["provider_id"] == "synthetic"
-    assert event.payload["model_id"] == "synthetic-model"
-    assert event.payload["requested_at"].endswith("+00:00")
+        )
+    assert caught.value is error
+    records = journal.records(challenge.challenge_id)
+    assert records[0].response_status == status
+    assert records[0].completed_at is not None
+    event = store.events(challenge.challenge_id)[0]
+    assert event.payload["call_id"] == records[0].call_id
     assert event.payload["response_status"] == status
-    assert "sensitive" not in event.model_dump_json()
-    assert "credential sentinel" not in event.model_dump_json()
-    assert store.verify(cid)["valid"]
 
 
-def test_task_cancellation_audited_once(tmp_path):
-    store = Store(tmp_path / "cancel.db")
-    challenge = Challenge(name="Synthetic cancellation", category="Misc")
-    store.create(challenge)
+def test_audited_cancellation_is_durable(tmp_path, monkeypatch):
+    store, challenge = make_store(tmp_path)
+    journal = ModelCallJournal(tmp_path / "model-audit.sqlite3")
 
     async def run():
         entered = asyncio.Event()
-        captured = []
 
         class BlockingProvider(SyntheticProvider):
             async def complete(self, request):
                 entered.set()
-                try:
-                    await asyncio.Event().wait()
-                except asyncio.CancelledError as error:
-                    captured.append(error)
-                    raise
+                await asyncio.Event().wait()
 
         task = asyncio.create_task(
-            recorded_complete(
+            audited_complete(
                 BlockingProvider(),
                 ModelRequest(messages=[]),
-                store,
-                challenge.challenge_id,
+                journal,
+                challenge_id=challenge.challenge_id,
+                store=store,
+                purpose="challenge_chat",
+                synthetic=False,
             )
         )
         await entered.wait()
         task.cancel("synthetic cancellation")
-        with pytest.raises(asyncio.CancelledError) as caught:
+        with pytest.raises(asyncio.CancelledError):
             await task
-        assert task.cancelled()
-        assert caught.value is captured[0]
 
     asyncio.run(run())
-    assert_audit(store, challenge.challenge_id, "cancelled")
+    records = journal.records(challenge.challenge_id)
+    assert records[0].response_status == "cancelled"
+    assert records[0].completed_at is not None
+    assert store.events(challenge.challenge_id)[0].payload["response_status"] == "cancelled"
 
 
-def test_tool_call_provenance_roundtrip():
-    response = ModelResponse(
+def test_unmatched_start_projects_unknown_without_replay(tmp_path):
+    journal = ModelCallJournal(tmp_path / "model-audit.sqlite3")
+    record = ModelCallRecord(
+        call_id="synthetic-unmatched",
+        challenge_id=None,
         provider_id="synthetic",
         model_id="synthetic-model",
-        text="",
-        tool_calls=[
-            ToolCall(
-                call_id="synthetic-call-A", name="metadata", arguments={"path": "a"}
-            ),
-            ToolCall(
-                call_id="synthetic-call-B", name="metadata", arguments={"path": "b"}
-            ),
-        ],
+        purpose="synthetic_connectivity",
+        synthetic=True,
+        data_scope="synthetic_only",
+        requested_at=now(),
     )
-    converted = proposals(response, "synthetic-challenge", Scope())
-    assert [p.call_id for p in converted] == ["synthetic-call-A", "synthetic-call-B"]
-    assert converted[0].proposal_id != converted[1].proposal_id
-    for original, proposal in zip(response.tool_calls, converted):
-        restored = type(proposal).model_validate_json(proposal.model_dump_json())
-        assert restored.call_id == original.call_id
-        assert restored.tool_name == original.name
-        assert restored.arguments == original.arguments
+    journal.start(record)
+    records = journal.records()
+    assert len(records) == 1
+    assert records[0].response_status == "unknown"
+    assert records[0].completed_at is None
+    # Reading never closes or replays the call.
+    assert journal.records()[0].response_status == "unknown"
+
+
+def test_ledger_tables_are_append_only(tmp_path):
+    journal = ModelCallJournal(tmp_path / "model-audit.sqlite3")
+    record = ModelCallRecord(
+        call_id="synthetic-append-only",
+        challenge_id=None,
+        provider_id="synthetic",
+        model_id="synthetic-model",
+        purpose="synthetic_connectivity",
+        synthetic=True,
+        data_scope="synthetic_only",
+        requested_at=now(),
+    )
+    journal.start(record)
+    with pytest.raises(ProviderError, match="audit_unavailable"):
+        with journal.connect() as db:
+            db.execute("UPDATE call_starts SET body='tampered'")
+    with pytest.raises(ProviderError, match="audit_unavailable"):
+        with journal.connect() as db:
+            db.execute("DELETE FROM call_starts")

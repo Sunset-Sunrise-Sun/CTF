@@ -1450,7 +1450,11 @@ def test_migration_preserves_p0_data_and_adds_relation_constraints(
             (row[2], row[3], row[4])
             for row in db.execute("PRAGMA foreign_key_list(artifacts)")
         }
-    assert versions == ["001_initial.sql", "002_artifacts.sql"]
+    assert versions == [
+        "001_initial.sql",
+        "002_artifacts.sql",
+        "003_tool_approvals.sql",
+    ]
     assert "events_challenge_event" in event_indexes
     assert ("events", "challenge_id", "challenge_id") in artifact_fks
     assert ("events", "source_event_id", "event_id") in artifact_fks

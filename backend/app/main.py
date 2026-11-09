@@ -10,6 +10,8 @@ from typing import get_args
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
@@ -43,13 +45,20 @@ from .models import (
     ChallengeCreate,
     Event,
     EvidenceKind,
+    FlagConfirmationCreate,
     ImportDetail,
     ImportRecord,
     ImportResult,
     ManualOperationCreate,
+    ModelServiceNetworkUpdate,
+    ModelServiceStatus,
+    ModelServiceUpdate,
     NoteCreate,
     Project,
     ProjectUpdate,
+    ToolDecisionRequest,
+    ToolProposalCreate,
+    ToolProposalRecord,
     WriteupDraft,
     WriteupDraftSave,
     WriteupPreview,
@@ -67,6 +76,23 @@ from .writeups import (
 from .store import Store
 from .workspace import Workspace
 from .writeup import build_writeup_preview
+from .model_calls import ModelCallJournal, ModelCallRecords, disclosure_calls, safe_error_code
+from .ai_assistant import AIChatRequest, AIChatResponse, AIConnectivityTestRequest, AIConnectivityTestResponse, ask_challenge, model_network_enabled, redact_sensitive, test_deepseek_connection
+from .ai_policy import (
+    attachment_content_allowed,
+    model_calls_allowed,
+    tool_execution_allowed,
+    tool_proposals_allowed,
+)
+from .providers import ProviderError
+from .model_service import ModelServiceError, ModelServiceSettings
+from .tool_registry import ToolValidationError, catalog
+from .tool_system import (
+    ToolConflict,
+    ToolNotFound,
+    ToolPermissionError,
+    ToolService,
+)
 
 # Multipart framing (boundary, per-part headers, filename) is allowed on top of
 # the declared upload limit; the file bytes themselves stay capped exactly.
@@ -286,6 +312,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app):
+        app.state.model_calls = ModelCallJournal(root / "model-audit.sqlite3")
+        app.state.model_settings = ModelServiceSettings(root)
         app.state.store = Store(root / "workbench.sqlite3")
         app.state.workspace = Workspace(root / "challenges")
         app.state.artifacts = ArtifactStore(
@@ -295,9 +323,33 @@ def create_app(
         app.state.project = ProjectStore(root, rules_store)
         app.state.writeups = WriteupStore(root / "writeups", max_bytes=writeup_limit)
         app.state.import_limits = import_budget
+        app.state.tools = ToolService(
+            app.state.store,
+            app.state.workspace,
+            app.state.artifacts,
+            app.state.model_calls,
+        )
+        # A crash may leave a proposal in "running"; reconcile it before serving
+        # requests so a new client never observes an execution that cannot finish.
+        app.state.tools.recover_interrupted()
+        app.state.tools.expire_stale()
         yield
 
     app = FastAPI(title="CTF Agent Workbench", version="0.3.0", lifespan=lifespan)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, error):
+        path = request.url.path
+        if path.endswith("/ai/chat") or path in {
+            "/api/model/test",
+            "/api/model/settings",
+        }:
+            return JSONResponse(status_code=422, content={"detail": [
+                {"loc": [redact_sensitive(part) if isinstance(part, str) else part for part in item["loc"]],
+                 "type": item["type"], "msg": redact_sensitive(item["msg"])}
+                for item in error.errors()
+            ]})
+        return await request_validation_exception_handler(request, error)
     app.state.max_artifact_bytes = artifact_limit
     app.state.rules_max_bytes = rules_limit
     app.state.max_writeup_bytes = writeup_limit
@@ -339,8 +391,14 @@ def create_app(
         limits = app.state.import_limits
         return {
             "status": "ok",
+            # Arbitrary shell/code execution remains disabled; only the fixed
+            # read-only tool catalog can be approved and executed.
             "execution_enabled": False,
-            "model_network_enabled": False,
+            "read_only_tool_execution_enabled": True,
+            "tool_count": len(catalog()),
+            "model_network_enabled": model_network_enabled(
+                app.state.model_settings
+            ),
             "artifact_max_bytes": app.state.max_artifact_bytes,
             "rules_max_bytes": app.state.rules_max_bytes,
             "writeup_max_bytes": app.state.max_writeup_bytes,
@@ -758,6 +816,205 @@ def create_app(
         )
 
     # ------------------------------------------------------------------
+    # Explicitly confirmed AI-assisted analysis (suggestions only; no execution)
+    @app.get("/api/model/status")
+    def model_status():
+        snapshot = app.state.model_settings.snapshot()
+        return {
+            "network_enabled": snapshot["network_enabled"],
+            "provider": "deepseek",
+            "model_id": redact_sensitive(snapshot["model_id"]),
+            "credentials_configured": snapshot["key_configured"],
+            "key_source": snapshot["key_source"],
+            "key_storage_available": snapshot["key_storage_available"],
+            "config_error": snapshot["config_error"],
+            "execution_enabled": False,
+        }
+
+    # ------------------------------------------------------------------
+    # Per-installation model service settings (API key never returned)
+    # ------------------------------------------------------------------
+    def model_settings_status() -> ModelServiceStatus:
+        return ModelServiceStatus(**app.state.model_settings.snapshot())
+
+    def settings_error(error: ModelServiceError):
+        code = getattr(error, "code", "invalid_config")
+        if code in {
+            "credential_store_unavailable",
+            "credential_store_error",
+        }:
+            raise HTTPException(503, {"code": code}) from None
+        raise HTTPException(422, {"code": code}) from None
+
+    @app.get("/api/model/settings", response_model=ModelServiceStatus)
+    def get_model_settings():
+        return model_settings_status()
+
+    @app.put("/api/model/settings", response_model=ModelServiceStatus)
+    def put_model_settings(body: ModelServiceUpdate):
+        try:
+            app.state.model_settings.save(
+                base_url=body.base_url,
+                model_id=body.model_id,
+                api_key=body.api_key,
+                clear_api_key=body.clear_api_key,
+                authorize_env_key_custom_base_url=(
+                    body.authorize_env_key_custom_base_url
+                ),
+            )
+        except ModelServiceError as error:
+            settings_error(error)
+        except OSError:
+            raise HTTPException(500, {"code": "settings_write_failed"}) from None
+        return model_settings_status()
+
+    @app.put("/api/model/network", response_model=ModelServiceStatus)
+    def put_model_network(body: ModelServiceNetworkUpdate):
+        try:
+            app.state.model_settings.set_network(body.network_enabled)
+        except OSError:
+            raise HTTPException(500, {"code": "settings_write_failed"}) from None
+        return model_settings_status()
+
+    def model_call_records(cid=None):
+        try:
+            return app.state.model_calls.records(cid)
+        except ProviderError:
+            raise HTTPException(503, {"code": "audit_unavailable"}) from None
+
+    @app.get("/api/model/calls", response_model=ModelCallRecords)
+    def list_model_calls():
+        return ModelCallRecords(calls=model_call_records())
+
+    def model_error(error):
+        status = {
+            "missing_credentials": 503, "model_network_disabled": 503,
+            "audit_unavailable": 503, "credential_store_unavailable": 503,
+            "credential_store_error": 503, "config_invalid": 503,
+            "env_key_custom_base_url_not_authorized": 403,
+            "ai_usage_not_permitted": 403,
+            "attachments_not_permitted": 403, "attachment_confirmation_required": 400,
+            "rate_limited": 429, "timeout": 504, "context_limit_exceeded": 413,
+            "evidence_selection_changed": 409, "context_integrity_error": 409,
+            "unsupported_evidence": 422, "duplicate_evidence_selection": 422,
+            "invalid_provider_configuration": 503,
+        }.get(error.code, 502)
+        return HTTPException(status, {"code": safe_error_code(error)})
+
+    @app.post("/api/model/test", response_model=AIConnectivityTestResponse)
+    async def model_connectivity_test(body: AIConnectivityTestRequest):
+        if not body.confirm_synthetic_request:
+            raise HTTPException(400, "Explicit confirmation is required for the synthetic connectivity request")
+        if app.state.model_settings.config_error is not None:
+            raise model_error(ProviderError("config_invalid"))
+        if not model_network_enabled(app.state.model_settings):
+            raise model_error(ProviderError("model_network_disabled"))
+        try:
+            response = await test_deepseek_connection(
+                app.state.model_calls, settings=app.state.model_settings
+            )
+        except ProviderError as error:
+            raise model_error(error) from None
+        except Exception:
+            raise HTTPException(502, {"code": "internal_error"}) from None
+        return {
+            "success": True,
+            "provider": redact_sensitive(response.provider_id),
+            "model_id": redact_sensitive(response.model_id),
+            "call_id": response.audit_call_id,
+            "sent_synthetic_content_only": True,
+        }
+
+    @app.post("/api/challenges/{cid}/ai/chat", response_model=AIChatResponse, status_code=201)
+    async def ai_chat(cid: str, body: AIChatRequest):
+        challenge = exists(cid)
+        if not body.confirm_external_processing:
+            raise HTTPException(400, "Explicit confirmation is required before challenge content is sent to the model")
+        if body.consent_challenge_id != cid:
+            raise HTTPException(
+                409,
+                "External-processing confirmation does not belong to this challenge",
+            )
+        if app.state.model_settings.config_error is not None:
+            raise model_error(ProviderError("config_invalid"))
+        if not model_network_enabled(app.state.model_settings):
+            raise model_error(ProviderError("model_network_disabled"))
+        if not model_calls_allowed(challenge.ai_usage_level):
+            raise model_error(ProviderError("ai_usage_not_permitted"))
+        if (
+            (body.selected_files or body.selected_artifacts)
+            and not attachment_content_allowed(challenge.ai_usage_level)
+        ):
+            raise model_error(ProviderError("attachments_not_permitted"))
+        try:
+            response, answer, included, scope, prepared = await ask_challenge(
+                challenge=challenge,
+                project=app.state.project.get(),
+                store=app.state.store,
+                workspace_challenge=app.state.workspace.challenge(cid),
+                artifact_store=app.state.artifacts,
+                body=body,
+                journal=app.state.model_calls,
+                tool_service=app.state.tools,
+                settings=app.state.model_settings,
+            )
+        except ProviderError as error:
+            raise model_error(error) from None
+        except ValueError:
+            raise model_error(ProviderError("context_integrity_error")) from None
+        except Exception:
+            raise HTTPException(502, {"code": "internal_error"}) from None
+        provider_id = redact_sensitive(response.provider_id)
+        model_id = redact_sensitive(response.model_id)
+        # The answer event, the pending proposal rows and their tool_proposed
+        # events are one transaction: an AI answer cannot claim a proposal that
+        # was never durably recorded, and vice versa.
+        try:
+            with app.state.store.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                event = app.state.store.append_event(
+                    db,
+                    cid,
+                    "agent",
+                    "agent_message",
+                    {
+                        "provider_id": provider_id,
+                        "model_id": model_id,
+                        "question": redact_sensitive(body.question),
+                        "answer": answer,
+                        "included_files": included,
+                        "consent_challenge_id": body.consent_challenge_id,
+                        "call_id": response.audit_call_id,
+                        "context_scope": scope,
+                        "verification_status": "unverified_suggestion",
+                        "execution_performed": False,
+                        "tool_proposal_ids": [
+                            item.get("proposal_id") for item in prepared
+                        ],
+                    },
+                )
+                proposals = (
+                    app.state.tools.create_many(db, cid, prepared)
+                    if prepared
+                    else []
+                )
+        except Exception:
+            raise HTTPException(503, {
+                "code": "ai_response_persistence_failed",
+                "message": f"模型已返回响应，但未能确认回答和工具申请已保存。调用 ID {response.audit_call_id}。",
+                "call_id": response.audit_call_id,
+                "response_status": "success",
+            }) from None
+        return AIChatResponse(
+            event_id=event.event_id,
+            answer=answer,
+            call_id=response.audit_call_id,
+            provider_id=provider_id,
+            model_id=model_id,
+            included_files=included,
+            tool_proposals=proposals,
+        )
+
     # manual execution records
     # ------------------------------------------------------------------
     @app.post(
@@ -794,11 +1051,25 @@ def create_app(
     # ------------------------------------------------------------------
     # Writeup draft and complete evidence export
     # ------------------------------------------------------------------
-    def build_preview(cid: str, challenge: Challenge) -> WriteupPreview:
-        events = app.state.store.events(cid)
+    def build_preview(
+        cid: str,
+        challenge: Challenge,
+        *,
+        events=None,
+        integrity=None,
+        calls=None,
+        tool_proposals=None,
+    ) -> WriteupPreview:
+        if events is None:
+            events = app.state.store.events(cid)
+        if integrity is None:
+            integrity = app.state.store.verify(cid)
+        if calls is None:
+            calls = disclosure_calls(events, model_call_records(cid))
+        if tool_proposals is None:
+            tool_proposals = app.state.tools.list(cid)
         artifacts = app.state.store.artifact_views(cid)
         project = app.state.project.get()
-        integrity = app.state.store.verify(cid)
         return build_writeup_preview(
             challenge,
             events,
@@ -806,6 +1077,8 @@ def create_app(
             project,
             app.state.artifacts.read_verified,
             integrity,
+            calls,
+            tool_proposals=tool_proposals,
         )
 
     @app.get("/api/challenges/{cid}/writeup/preview", response_model=WriteupPreview)
@@ -858,10 +1131,21 @@ def create_app(
     @app.get("/api/challenges/{cid}/export")
     def export_dossier(cid: str):
         challenge = exists(cid)
-        preview = build_preview(cid, challenge)
         workspace_challenge = app.state.workspace.challenge(cid)
         events = app.state.store.events(cid)
         integrity = app.state.store.verify(cid)
+        # One snapshot feeds the preview, the ZIP, ai_disclosure.md and the
+        # manifest, so all exported counts and records are internally consistent.
+        calls = disclosure_calls(events, model_call_records(cid))
+        tool_proposals = app.state.tools.list(cid)
+        preview = build_preview(
+            cid,
+            challenge,
+            events=events,
+            integrity=integrity,
+            calls=calls,
+            tool_proposals=tool_proposals,
+        )
         manifests, import_issues = scan_imports(workspace_challenge, events, cid)
         human_writeup: WriteupDraft | None = None
         writeup_integrity_error: str | None = None
@@ -902,6 +1186,8 @@ def create_app(
                 missing_requirements=preview.missing_requirements,
                 writeup_warnings=preview.warnings,
                 integrity=integrity,
+                model_calls=calls,
+                tool_proposals=tool_proposals,
             )
         except OSError:
             raise HTTPException(500, "Evidence archive export failed") from None
@@ -913,9 +1199,154 @@ def create_app(
             background=BackgroundTask(_cleanup_export, result.path),
         )
 
+    # ------------------------------------------------------------------
+    # fixed read-only local tools (human approval + explicit execution)
+    # ------------------------------------------------------------------
+    def require_tool_policy(challenge: Challenge):
+        if not tool_proposals_allowed(challenge.ai_usage_level):
+            raise HTTPException(403, {"code": "ai_usage_not_permitted"})
+        if not tool_execution_allowed(challenge.ai_usage_level):
+            raise HTTPException(403, {"code": "ai_usage_not_permitted"})
+
+    def tool_call(action):
+        try:
+            return action()
+        except ToolNotFound:
+            raise HTTPException(404, "Tool proposal not found") from None
+        except ToolPermissionError as error:
+            raise HTTPException(
+                403, {"code": getattr(error, "code", "ai_usage_not_permitted")}
+            ) from None
+        except ToolConflict as error:
+            raise HTTPException(
+                409,
+                {
+                    "message": str(error),
+                    "status": error.status,
+                    "code": getattr(error, "code", None),
+                },
+            ) from None
+        except ToolValidationError as error:
+            raise HTTPException(422, str(error)) from None
+        except ProviderError as error:
+            raise model_error(error) from None
+
     @app.get("/api/tools")
     def tools():
-        return {"tools": [], "execution_enabled": False, "max_active_containers": 3}
+        return {
+            "tools": catalog(),
+            "execution_enabled": False,
+            "read_only_tool_execution_enabled": True,
+            "read_only": True,
+            "requires_human_approval": True,
+            "max_active_containers": 0,
+        }
+
+    @app.get(
+        "/api/challenges/{cid}/tool-proposals",
+        response_model=list[ToolProposalRecord],
+    )
+    def list_tool_proposals(cid: str):
+        exists(cid)
+        return app.state.tools.list(cid)
+
+    @app.post(
+        "/api/challenges/{cid}/tool-proposals",
+        response_model=ToolProposalRecord,
+        status_code=201,
+    )
+    def create_tool_proposal(cid: str, body: ToolProposalCreate):
+        challenge = exists(cid)
+        require_tool_policy(challenge)
+        return tool_call(
+            lambda: app.state.tools.propose(
+                cid,
+                tool_name=body.tool_name,
+                arguments=body.arguments,
+                reason=body.reason,
+                proposed_by="user",
+                model_call_id=body.model_call_id,
+            )
+        )
+
+    @app.get(
+        "/api/challenges/{cid}/tool-proposals/{pid}",
+        response_model=ToolProposalRecord,
+    )
+    def get_tool_proposal(cid: str, pid: str):
+        exists(cid)
+        return tool_call(lambda: app.state.tools.get(cid, pid))
+
+    @app.post(
+        "/api/challenges/{cid}/tool-proposals/{pid}/approve",
+        response_model=ToolProposalRecord,
+    )
+    def approve_tool_proposal(cid: str, pid: str, body: ToolDecisionRequest):
+        challenge = exists(cid)
+        require_tool_policy(challenge)
+        return tool_call(
+            lambda: app.state.tools.approve(
+                cid, pid, user=body.approving_user, note=body.note
+            )
+        )
+
+    @app.post(
+        "/api/challenges/{cid}/tool-proposals/{pid}/execute",
+        response_model=ToolProposalRecord,
+    )
+    def execute_tool_proposal(cid: str, pid: str):
+        challenge = exists(cid)
+        require_tool_policy(challenge)
+        return tool_call(lambda: app.state.tools.execute(cid, pid))
+
+    @app.post(
+        "/api/challenges/{cid}/tool-proposals/{pid}/reject",
+        response_model=ToolProposalRecord,
+    )
+    def reject_tool_proposal(cid: str, pid: str, body: ToolDecisionRequest):
+        exists(cid)
+        return tool_call(
+            lambda: app.state.tools.reject(
+                cid, pid, user=body.approving_user, note=body.note
+            )
+        )
+
+    @app.post(
+        "/api/challenges/{cid}/tool-proposals/{pid}/cancel",
+        response_model=ToolProposalRecord,
+    )
+    def cancel_tool_proposal(cid: str, pid: str, body: ToolDecisionRequest):
+        exists(cid)
+        return tool_call(
+            lambda: app.state.tools.cancel(
+                cid, pid, user=body.approving_user, note=body.note
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # human Flag confirmation (hash and length only, never plaintext)
+    # ------------------------------------------------------------------
+    @app.post(
+        "/api/challenges/{cid}/flag-confirmation",
+        response_model=Event,
+        status_code=201,
+    )
+    def confirm_flag(cid: str, body: FlagConfirmationCreate):
+        exists(cid)
+        flag_digest = hashlib.sha256(body.flag.encode("utf-8")).hexdigest()
+        return app.state.store.append(
+            cid,
+            "user",
+            "flag_confirmed",
+            {
+                "flag_sha256": flag_digest,
+                "flag_length": len(body.flag),
+                "confirmed_by": body.confirmed_by,
+                "note": body.note,
+                "source": "manual_user_confirmation",
+                "platform_verified": False,
+            },
+        )
 
     return app
 

@@ -1,5 +1,6 @@
 # Local challenge data and secrets
 .local-data/
+.local-run/
 data/
 workspaces/
 attachments/
@@ -17,6 +18,7 @@ logs/
 !.env.example
 *.pem
 *.key
+model-service.secret
 providers.local.json
 __pycache__/
 *.py[cod]

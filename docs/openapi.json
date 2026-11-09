@@ -739,6 +739,219 @@
         }
       }
     },
+    "/api/model/status": {
+      "get": {
+        "summary": "Model Status",
+        "operationId": "model_status_api_model_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/settings": {
+      "get": {
+        "summary": "Get Model Settings",
+        "operationId": "get_model_settings_api_model_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Model Settings",
+        "operationId": "put_model_settings_api_model_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelServiceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelServiceStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/network": {
+      "put": {
+        "summary": "Put Model Network",
+        "operationId": "put_model_network_api_model_network_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelServiceNetworkUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelServiceStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/calls": {
+      "get": {
+        "summary": "List Model Calls",
+        "operationId": "list_model_calls_api_model_calls_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCallRecords"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/test": {
+      "post": {
+        "summary": "Model Connectivity Test",
+        "operationId": "model_connectivity_test_api_model_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIConnectivityTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIConnectivityTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/ai/chat": {
+      "post": {
+        "summary": "Ai Chat",
+        "operationId": "ai_chat_api_challenges__cid__ai_chat_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIChatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/challenges/{cid}/manual-operations": {
       "post": {
         "summary": "Manual Operation",
@@ -965,10 +1178,576 @@
           }
         }
       }
+    },
+    "/api/challenges/{cid}/tool-proposals": {
+      "get": {
+        "summary": "List Tool Proposals",
+        "operationId": "list_tool_proposals_api_challenges__cid__tool_proposals_get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolProposalRecord"
+                  },
+                  "title": "Response List Tool Proposals Api Challenges  Cid  Tool Proposals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Tool Proposal",
+        "operationId": "create_tool_proposal_api_challenges__cid__tool_proposals_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolProposalCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/tool-proposals/{pid}": {
+      "get": {
+        "summary": "Get Tool Proposal",
+        "operationId": "get_tool_proposal_api_challenges__cid__tool_proposals__pid__get",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/tool-proposals/{pid}/approve": {
+      "post": {
+        "summary": "Approve Tool Proposal",
+        "operationId": "approve_tool_proposal_api_challenges__cid__tool_proposals__pid__approve_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/tool-proposals/{pid}/execute": {
+      "post": {
+        "summary": "Execute Tool Proposal",
+        "operationId": "execute_tool_proposal_api_challenges__cid__tool_proposals__pid__execute_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/tool-proposals/{pid}/reject": {
+      "post": {
+        "summary": "Reject Tool Proposal",
+        "operationId": "reject_tool_proposal_api_challenges__cid__tool_proposals__pid__reject_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/tool-proposals/{pid}/cancel": {
+      "post": {
+        "summary": "Cancel Tool Proposal",
+        "operationId": "cancel_tool_proposal_api_challenges__cid__tool_proposals__pid__cancel_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolProposalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/challenges/{cid}/flag-confirmation": {
+      "post": {
+        "summary": "Confirm Flag",
+        "operationId": "confirm_flag_api_challenges__cid__flag_confirmation_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlagConfirmationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AIChatRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "confirm_external_processing": {
+            "type": "boolean",
+            "title": "Confirm External Processing",
+            "default": false
+          },
+          "consent_challenge_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Consent Challenge Id"
+          },
+          "selected_texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Selected Texts"
+          },
+          "selected_files": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedImport"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Selected Files"
+          },
+          "selected_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedArtifact"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Selected Artifacts"
+          },
+          "confirm_attachments": {
+            "type": "boolean",
+            "title": "Confirm Attachments",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "consent_challenge_id"
+        ],
+        "title": "AIChatRequest"
+      },
+      "AIChatResponse": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "included_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Included Files"
+          },
+          "verification_status": {
+            "type": "string",
+            "title": "Verification Status",
+            "default": "unverified_suggestion"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "tool_proposals": {
+            "items": {
+              "$ref": "#/components/schemas/ToolProposalRecord"
+            },
+            "type": "array",
+            "title": "Tool Proposals"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_id",
+          "answer",
+          "provider_id",
+          "model_id",
+          "included_files",
+          "call_id"
+        ],
+        "title": "AIChatResponse"
+      },
+      "AIConnectivityTestRequest": {
+        "properties": {
+          "confirm_synthetic_request": {
+            "type": "boolean",
+            "title": "Confirm Synthetic Request",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AIConnectivityTestRequest"
+      },
+      "AIConnectivityTestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "sent_synthetic_content_only": {
+            "type": "boolean",
+            "title": "Sent Synthetic Content Only"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "success",
+          "provider",
+          "model_id",
+          "call_id",
+          "sent_synthetic_content_only"
+        ],
+        "title": "AIConnectivityTestResponse"
+      },
       "ArtifactView": {
         "properties": {
           "artifact_id": {
@@ -1158,6 +1937,15 @@
             "title": "Source",
             "default": "practice"
           },
+          "evidence_profile": {
+            "type": "string",
+            "enum": [
+              "real_challenge",
+              "synthetic_connectivity"
+            ],
+            "title": "Evidence Profile",
+            "default": "real_challenge"
+          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
@@ -1278,6 +2066,15 @@
             "title": "Source",
             "default": "practice"
           },
+          "evidence_profile": {
+            "type": "string",
+            "enum": [
+              "real_challenge",
+              "synthetic_connectivity"
+            ],
+            "title": "Evidence Profile",
+            "default": "real_challenge"
+          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
@@ -1365,8 +2162,11 @@
               "tool_proposed",
               "tool_approved",
               "tool_rejected",
+              "tool_cancelled",
+              "tool_expired",
               "tool_started",
               "tool_finished",
+              "flag_confirmed",
               "command_started",
               "command_finished",
               "artifact_added",
@@ -1419,6 +2219,42 @@
           "previous_event_hash"
         ],
         "title": "Event"
+      },
+      "FlagConfirmationCreate": {
+        "properties": {
+          "flag": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Flag"
+          },
+          "confirmed_by": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Confirmed By",
+            "default": "local-user"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "flag"
+        ],
+        "title": "FlagConfirmationCreate",
+        "description": "Human confirmation of a Flag; only a digest and length are persisted."
       },
       "HTTPValidationError": {
         "properties": {
@@ -1782,6 +2618,306 @@
         ],
         "title": "ManualOperationCreate"
       },
+      "ModelCallRecord": {
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "challenge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Challenge Id"
+          },
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "challenge_chat",
+              "synthetic_connectivity"
+            ],
+            "title": "Purpose"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "data_scope": {
+            "type": "string",
+            "title": "Data Scope"
+          },
+          "requested_at": {
+            "type": "string",
+            "title": "Requested At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "response_status": {
+            "type": "string",
+            "title": "Response Status",
+            "default": "unknown"
+          },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Category"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "call_id",
+          "challenge_id",
+          "provider_id",
+          "model_id",
+          "purpose",
+          "synthetic",
+          "data_scope",
+          "requested_at"
+        ],
+        "title": "ModelCallRecord"
+      },
+      "ModelCallRecords": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCallRecord"
+            },
+            "type": "array",
+            "title": "Calls"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelCallRecords"
+      },
+      "ModelServiceNetworkUpdate": {
+        "properties": {
+          "network_enabled": {
+            "type": "boolean",
+            "title": "Network Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "network_enabled"
+        ],
+        "title": "ModelServiceNetworkUpdate"
+      },
+      "ModelServiceStatus": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "const": "deepseek",
+            "title": "Provider",
+            "default": "deepseek"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "default_base_url": {
+            "type": "string",
+            "title": "Default Base Url"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          },
+          "default_model_id": {
+            "type": "string",
+            "title": "Default Model Id"
+          },
+          "default_model_name": {
+            "type": "string",
+            "title": "Default Model Name"
+          },
+          "key_configured": {
+            "type": "boolean",
+            "title": "Key Configured"
+          },
+          "key_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "settings",
+                  "environment"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Source"
+          },
+          "key_storage_available": {
+            "type": "boolean",
+            "title": "Key Storage Available"
+          },
+          "key_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Error"
+          },
+          "config_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Error"
+          },
+          "network_enabled": {
+            "type": "boolean",
+            "title": "Network Enabled"
+          },
+          "network_setting": {
+            "type": "boolean",
+            "title": "Network Setting"
+          },
+          "network_env_override": {
+            "type": "boolean",
+            "title": "Network Env Override"
+          },
+          "env_key_custom_base_url_authorized": {
+            "type": "boolean",
+            "title": "Env Key Custom Base Url Authorized",
+            "default": false
+          },
+          "env_key_custom_base_url_authorization_required": {
+            "type": "boolean",
+            "title": "Env Key Custom Base Url Authorization Required",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "base_url",
+          "default_base_url",
+          "model_id",
+          "model_name",
+          "default_model_id",
+          "default_model_name",
+          "key_configured",
+          "key_storage_available",
+          "network_enabled",
+          "network_setting",
+          "network_env_override"
+        ],
+        "title": "ModelServiceStatus"
+      },
+      "ModelServiceUpdate": {
+        "properties": {
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "clear_api_key": {
+            "type": "boolean",
+            "title": "Clear Api Key",
+            "default": false
+          },
+          "authorize_env_key_custom_base_url": {
+            "type": "boolean",
+            "title": "Authorize Env Key Custom Base Url",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelServiceUpdate",
+        "description": "Settings update; an omitted api_key keeps the existing secret."
+      },
       "NoteCreate": {
         "properties": {
           "text": {
@@ -1994,6 +3130,387 @@
         "type": "object",
         "title": "Scope"
       },
+      "SelectedArtifact": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Artifact Id"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "sha256"
+        ],
+        "title": "SelectedArtifact"
+      },
+      "SelectedImport": {
+        "properties": {
+          "import_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Import Id"
+          },
+          "relative_path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Relative Path"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "import_id",
+          "relative_path",
+          "sha256"
+        ],
+        "title": "SelectedImport"
+      },
+      "ToolDecisionRequest": {
+        "properties": {
+          "approving_user": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Approving User",
+            "default": "local-user"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ToolDecisionRequest"
+      },
+      "ToolProposalCreate": {
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Tool Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "model_call_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Call Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tool_name",
+          "reason"
+        ],
+        "title": "ToolProposalCreate"
+      },
+      "ToolProposalRecord": {
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "model_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Call Id"
+          },
+          "tool_name": {
+            "type": "string",
+            "title": "Tool Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Risk Level"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "running",
+              "succeeded",
+              "failed",
+              "timed_out",
+              "rejected",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "proposed_by": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "user"
+            ],
+            "title": "Proposed By",
+            "default": "agent"
+          },
+          "proposed_at": {
+            "type": "string",
+            "title": "Proposed At"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "decision_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Event Id"
+          },
+          "started_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started Event Id"
+          },
+          "finished_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Event Id"
+          },
+          "artifact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Artifact Ids"
+          },
+          "output_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Artifact Id"
+          },
+          "output_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Sha256"
+          },
+          "output_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Size"
+          },
+          "output_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Summary"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "challenge_id",
+          "tool_name",
+          "arguments",
+          "reason",
+          "risk_level",
+          "proposed_at",
+          "expires_at"
+        ],
+        "title": "ToolProposalRecord",
+        "description": "One immutable-arguments tool proposal plus its approval/execution state.\n\nThe row is the authoritative state; every transition is also written to the\nappend-only challenge event chain in the same SQLite transaction."
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2116,6 +3633,20 @@
             "type": "array",
             "title": "Missing Requirements"
           },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/WriteupRequirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "not_applicable_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Not Applicable Requirements"
+          },
           "event_count": {
             "type": "integer",
             "minimum": 0.0,
@@ -2140,6 +3671,36 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "model_call_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Model Call Count",
+            "default": 0
+          },
+          "tool_proposal_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tool Proposal Count",
+            "default": 0
+          },
+          "tool_execution_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tool Execution Count",
+            "default": 0
+          },
+          "unique_tool_output_artifact_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unique Tool Output Artifact Count",
+            "default": 0
+          },
+          "tool_failure_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tool Failure Count",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -2151,6 +3712,59 @@
           "completeness"
         ],
         "title": "WriteupPreview"
+      },
+      "WriteupRequirement": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proven",
+              "missing",
+              "not_applicable"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "label",
+          "status"
+        ],
+        "title": "WriteupRequirement",
+        "description": "One completeness dimension with explicit proven/missing/N/A state."
       }
     }
   }

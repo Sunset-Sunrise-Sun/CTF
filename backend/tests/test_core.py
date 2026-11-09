@@ -59,7 +59,18 @@ def test_api(tmp_path):
             == 422
         )
         assert client.get("/api/challenges/missing/events").status_code == 404
-        assert client.get("/api/tools").json()["tools"] == []
+        tool_catalog = client.get("/api/tools").json()
+        assert {item["name"] for item in tool_catalog["tools"]} == {
+            "file_inspect",
+            "sha256",
+            "stat",
+            "strings",
+            "list_files",
+            "image_info",
+            "text_decode",
+        }
+        assert tool_catalog["execution_enabled"] is False
+        assert tool_catalog["read_only_tool_execution_enabled"] is True
 
 
 def test_migrations_and_append_only(store):
@@ -69,7 +80,7 @@ def test_migrations_and_append_only(store):
     )
     assert e.event_type == "agent_message"
     with store.connect() as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
         for sql in ["UPDATE events SET sequence=2", "DELETE FROM events"]:
             with pytest.raises(sqlite3.IntegrityError):
                 db.execute(sql)

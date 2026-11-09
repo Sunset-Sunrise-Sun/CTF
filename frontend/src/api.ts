@@ -55,10 +55,11 @@ export async function request<T>(
   body?: unknown,
   method = "GET",
   base = "/api",
+  timeoutMs = 30000,
 ): Promise<T> {
   const r = await fetch(base + path, {
     method,
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

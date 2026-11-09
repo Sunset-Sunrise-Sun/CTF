@@ -40,11 +40,18 @@ class Scope(Model):
     max_active_containers: int = Field(default=3, ge=0, le=3)
 
 
+EvidenceProfile = Literal["real_challenge", "synthetic_connectivity"]
+
+
 class ChallengeCreate(Model):
     name: str = Field(min_length=1, max_length=200)
     category: Category
     description: str = ""
     source: Literal["warmup", "practice", "competition"] = "practice"
+    # Synthetic connectivity challenges are deliberately marked so the
+    # Writeup can record core-code/Flag requirements as N/A with a reason.
+    # Real challenges keep the default and never receive a free pass.
+    evidence_profile: EvidenceProfile = "real_challenge"
     scope: Scope = Field(default_factory=Scope)
     # Extensions are optional with defaults so historical challenge JSON that
     # predates them keeps loading and validating unchanged.
@@ -69,8 +76,11 @@ EventType = Literal[
     "tool_proposed",
     "tool_approved",
     "tool_rejected",
+    "tool_cancelled",
+    "tool_expired",
     "tool_started",
     "tool_finished",
+    "flag_confirmed",
     "command_started",
     "command_finished",
     "artifact_added",
@@ -190,13 +200,32 @@ class ImportResult(ImportDetail):
     import_event_id: str
 
 
+class WriteupRequirement(Model):
+    """One completeness dimension with explicit proven/missing/N/A state."""
+
+    code: str
+    label: str
+    status: Literal["proven", "missing", "not_applicable"]
+    reason: str = ""
+    evidence: list[str] = Field(default_factory=list)
+    remediation: str | None = None
+
+
 class WriteupPreview(Model):
     markdown: str
     missing_requirements: list[str] = Field(default_factory=list)
+    requirements: list[WriteupRequirement] = Field(default_factory=list)
+    not_applicable_requirements: list[str] = Field(default_factory=list)
     event_count: int = Field(ge=0)
     artifact_count: int = Field(ge=0)
     completeness: Literal["complete", "incomplete"]
     warnings: list[str] = Field(default_factory=list)
+    # Additive disclosure counters; harmless for older databases.
+    model_call_count: int = Field(default=0, ge=0)
+    tool_proposal_count: int = Field(default=0, ge=0)
+    tool_execution_count: int = Field(default=0, ge=0)
+    unique_tool_output_artifact_count: int = Field(default=0, ge=0)
+    tool_failure_count: int = Field(default=0, ge=0)
 
 
 class WriteupDraft(Model):
@@ -291,3 +320,106 @@ class Writeup(Model):
     writeup_status: WriteupStatus
     statements: list[WriteupStatement]
     generated_at: str = Field(default_factory=now)
+
+
+ToolStatus = Literal[
+    "pending",
+    "approved",
+    "running",
+    "succeeded",
+    "failed",
+    "timed_out",
+    "rejected",
+    "cancelled",
+    "expired",
+]
+
+
+class ToolProposalRecord(Model):
+    """One immutable-arguments tool proposal plus its approval/execution state.
+
+    The row is the authoritative state; every transition is also written to the
+    append-only challenge event chain in the same SQLite transaction.
+    """
+
+    proposal_id: str
+    challenge_id: str
+    model_call_id: str | None = None
+    tool_name: str
+    arguments: dict[str, Any]
+    reason: str
+    risk_level: Literal["low", "medium", "high"]
+    status: ToolStatus = "pending"
+    proposed_by: Literal["agent", "user"] = "agent"
+    proposed_at: str
+    expires_at: str
+    approval_id: str | None = None
+    approved_by: str | None = None
+    approved_at: str | None = None
+    decision_note: str | None = None
+    execution_id: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    decision_event_id: str | None = None
+    started_event_id: str | None = None
+    finished_event_id: str | None = None
+    artifact_ids: list[str] = Field(default_factory=list)
+    output_artifact_id: str | None = None
+    output_sha256: str | None = None
+    output_size: int | None = None
+    output_summary: str | None = None
+    error: str | None = None
+
+
+class ToolDecisionRequest(Model):
+    approving_user: str = Field(default="local-user", min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ToolProposalCreate(Model):
+    tool_name: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field(min_length=1, max_length=1000)
+    model_call_id: str | None = Field(default=None, max_length=64)
+
+
+class FlagConfirmationCreate(Model):
+    """Human confirmation of a Flag; only a digest and length are persisted."""
+
+    flag: str = Field(min_length=1, max_length=500)
+    confirmed_by: str = Field(default="local-user", min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ModelServiceUpdate(Model):
+    """Settings update; an omitted api_key keeps the existing secret."""
+
+    base_url: str | None = Field(default=None, max_length=2048)
+    model_id: str | None = Field(default=None, max_length=128)
+    api_key: str | None = Field(default=None, max_length=512)
+    clear_api_key: bool = Field(default=False, strict=True)
+    authorize_env_key_custom_base_url: bool = Field(default=False, strict=True)
+
+
+class ModelServiceNetworkUpdate(Model):
+    network_enabled: bool = Field(strict=True)
+
+
+class ModelServiceStatus(Model):
+    provider: Literal["deepseek"] = "deepseek"
+    base_url: str
+    default_base_url: str
+    model_id: str
+    model_name: str
+    default_model_id: str
+    default_model_name: str
+    key_configured: bool
+    key_source: Literal["settings", "environment"] | None = None
+    key_storage_available: bool
+    key_error: str | None = None
+    config_error: str | None = None
+    network_enabled: bool
+    network_setting: bool
+    network_env_override: bool
+    env_key_custom_base_url_authorized: bool = False
+    env_key_custom_base_url_authorization_required: bool = False

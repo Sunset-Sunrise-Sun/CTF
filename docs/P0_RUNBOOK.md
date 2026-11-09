@@ -28,15 +28,16 @@ Swagger: http://127.0.0.1:8000/docs ，OpenAPI: http://127.0.0.1:8000/openapi.js
 ## P0 可用范围
 创建五类题目、独立解题/Writeup 状态、工作区目录、追加用户笔记、回溯标签、查看事件和完整性校验。
 公共 API 不允许客户端写入 actor/type/time/hash，因此无法通过笔记接口伪造 broker 执行记录。
-Provider 通过独立显式 CLI 调用；Web API 不开放模型网络调用。工具注册表为空，即使批准也拒绝执行。
+Provider 底层支持 OpenAI-Compatible / DeepSeek / OpenAI Chat Completions。当前 A00 的 Web 工作台已提供显式同意的 DeepSeek AI 辅助解题入口：默认关闭联网，需在后端进程环境中配置 `CTF_MODEL_NETWORK_ENABLED=true` 与 API Key 环境变量；每次发送题目上下文前还需在前端单独确认。具体配置见 [AI 辅助解题说明](AI_ASSISTED_SOLVING.md)。AI 仅提供未验证建议，不执行命令、不访问目标、不提交 Flag。工具注册表仍为空，执行关闭。
 
 ## 未完成事项
 - 附件导入、内容寻址证据持久化和只读原件（目前提供 Artifact 契约；无附件上传 API）。
 - 工具提案/审批持久化、真实执行生命周期、输出捕获、隔离容器和运行数量限制；当前禁用全部执行，配置最多三个容器。
 - 五类 playbook、完整 Agent、外部模型调用 UI、流式调用审计接入。
 - Anthropic 原生 Messages 通信；目前其接口明确返回 adapter_not_implemented。
+- DeepSeek 真实凭证与网络连通性尚未在维护者环境验证；Mock Provider 集成测试不替代真实 API 验证。
 - 确定性 Writeup/Markdown/PDF 生成器、W01–W10 完整验收、敏感信息识别与导出脱敏。
-- 真 Provider 接入测试：需要合法配置凭证；当前未验证。
+
 - 身份认证、备份恢复自动化、外部完整性签名/检查点和可迁移的权限隔离。
 
 不允许依赖此 P0 执行不可信二进制；路径检查是应用级边界，并非 OS sandbox。路径检查与文件访问之间仍存在 TOCTOU 风险，后续执行器必须使用隔离文件系统。

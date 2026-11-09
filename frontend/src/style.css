@@ -104,6 +104,20 @@ small {
   padding: 7px 10px;
   border-radius: 5px;
 }
+.settings-open {
+  padding: 8px 12px;
+  border: 1px solid #b8c4d6;
+  border-radius: 6px;
+  background: #fff;
+  color: #25324a;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.settings-open:hover {
+  background: #f2f6fc;
+}
 .layout {
   display: grid;
   grid-template-columns: 260px minmax(380px, 1fr) 280px;
@@ -518,4 +532,145 @@ progress {
 .draft-metadata {
   font-size: 12px;
   color: #576c79;
+}
+
+
+.ai-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  margin: 14px 0 20px;
+  background: #f4f7f9;
+  border: 1px solid #dce5ec;
+  border-radius: 8px;
+}
+.ai-status small {
+  flex-basis: 100%;
+}
+.ai-status button {
+  margin-left: auto;
+}
+.ai-panel .consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #34485c;
+  line-height: 1.6;
+}
+.ai-panel .consent input {
+  width: auto;
+  margin-top: 3px;
+}
+.ai-answer {
+  margin-top: 24px;
+  padding: 18px;
+  background: #f7fafb;
+  border: 1px solid #dce5ec;
+  border-radius: 8px;
+}
+.ai-answer pre {
+  max-height: 65vh;
+  white-space: pre-wrap;
+}
+
+.ai-turn {
+  border-top: 1px solid #dce5ec;
+  padding: 14px 0;
+  margin-top: 12px;
+}
+.ai-turn p {
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-turn pre {
+  max-height: none;
+  overflow: visible;
+  background: #fff;
+  border-left: 2px solid #9fbfb6;
+  padding: 8px 12px;
+}
+
+/* Model-call audit status (independent journal) */
+.model-audit,
+.flag-confirmation {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #dce5ec;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.model-calls {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+.model-call {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-top: 1px solid #e0e7ee;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+.model-call strong {
+  font-size: 13px;
+  color: #1c5c50;
+}
+.model-call[data-status="failed"] strong,
+.model-call[data-status="error"] strong {
+  color: #a63c39;
+}
+.model-call[data-status="unknown"] strong {
+  color: #926424;
+}
+.model-call span,
+.model-call small {
+  overflow-wrap: anywhere;
+}
+
+/* Human Flag confirmation: digest/length/confirmer only, never plaintext */
+.flag-records {
+  margin-top: 14px;
+  min-width: 0;
+}
+.flag-records h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.flag-record {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid #d5e3df;
+  background: #f3f7f6;
+  border-radius: 6px;
+  padding: 10px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.flag-record code {
+  overflow-wrap: anywhere;
+}
+.flag-confirmation input {
+  max-width: 100%;
+}
+.flag-confirmation button {
+  margin-top: 4px;
+}
+
+@media (max-width: 650px) {
+  .model-audit .section-title,
+  .ai-status {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .ai-status button {
+    margin-left: 0;
+  }
+  .tool-approval .approval-actions button {
+    flex: 1 1 auto;
+  }
 }

@@ -24,17 +24,13 @@ JSON 只记录环境变量名称，不含 Key。`ProviderRegistry.from_file(path
 API Key 通过对应环境变量传入，不输出到模型日志。只在用户配置并显式允许时连接模型服务；模型通信权限不授予题目目标网络权限。
 OpenAI-Compatible base_url 可以指向本地服务；支持 HTTP 的原因是本地模型，远程服务应使用 HTTPS。禁用自动重定向，避免凭证转发。
 
-显式合成联网测试（在 backend）：
-```powershell
-python -m app.model_cli ../providers.local.json --provider openai --allow-model-network
-```
-不输出响应内容，仅记录 Provider、Model ID、请求 UTC 时间和响应状态到本地 SQLite。CLI 不发送题目内容。
-`recorded_complete` 是审计入口，调用者不能绕过它后声称请求已被审计。流式审计入口仍待集成，当前 Web 不开放流式调用。
-审计状态：正常返回 success；ProviderError 使用其 code；其他 Exception 为 internal_error；asyncio.CancelledError 为 cancelled。异常原样向上传递。每次调用只追加一条 model_call，仅含 provider_id、model_id、requested_at、response_status，不含异常正文、请求、响应或密钥。
+在 backend 目录运行旧 model_cli 或新 ai_smoke_cli 时，设置 CTF_MODEL_NETWORK_ENABLED=true 和独立绝对 CTF_DATA_DIR，并传入 --allow-model-network。旧命令保留配置文件及 --provider 参数。两个入口均发送固定合成提示，使用隔离临时目录，并输出调用 ID。
+
+工作台和 CLI 均使用 audited_complete，在发出请求前记录开始，在返回前记录终结。远程端点使用 HTTPS，本机回环服务允许 HTTP。审计记录调用 ID、用途、Provider、模型、时间、状态和可取得的 token 计数。P0.1 recorded_complete 保留原接口和旧事件格式。流式生产审计仍为独立阶段。
 
 统一异常 ProviderError.code：missing_credentials、unsupported_capability、timeout、rate_limited（保留 Retry-After）、authentication、upstream_error、transport_error、invalid_response、adapter_not_implemented。
 不自动重试，避免隐式重复计费与重复工具提案；调用方可按 Retry-After 决定重试。超时可配置，取消由 asyncio 向上传递。异常不包含 upstream body 或凭证。
 
 ## 真实 Provider 验证
-需要合法凭证。设置 CTF_RUN_LIVE_MODEL=1 和 CTF_LIVE_PROVIDER_CONFIG（单个 ProviderConfig JSON，仅含 API Key 环境变量名称），运行 `python -m pytest -q tests/test_providers.py -k live`。
+需要合法凭证。设置 CTF_RUN_LIVE_MODEL=1、CTF_MODEL_NETWORK_ENABLED=true、独立绝对 CTF_DATA_DIR 和 CTF_LIVE_PROVIDER_CONFIG（单个 ProviderConfig JSON，仅含 API Key 环境变量名称），运行 `python -m pytest -q tests/test_providers.py -k live`。
 本次默认跳过；Mock 测试验证协议、流式聚合、错误、能力降级、切换和 Anthropic 明确失败，不代替真实 Provider 联通性测试。

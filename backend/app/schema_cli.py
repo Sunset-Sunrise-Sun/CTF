@@ -14,6 +14,11 @@ import json
 from pathlib import Path
 
 from .main import create_app
+from .ai_assistant import (
+    AIChatRequest, AIChatResponse, AIConnectivityTestRequest, AIConnectivityTestResponse,
+    SelectedArtifact, SelectedImport,
+)
+from .model_calls import ModelCallRecord, ModelCallRecords
 from .models import (
     Artifact,
     ArtifactView,
@@ -27,13 +32,20 @@ from .models import (
     ImportRecord,
     ImportResult,
     ManualOperationCreate,
+    ModelServiceNetworkUpdate,
+    ModelServiceStatus,
+    ModelServiceUpdate,
     NoteCreate,
     Project,
     ProjectUpdate,
     Scope,
+    FlagConfirmationCreate,
     ToolApproval,
+    ToolDecisionRequest,
     ToolExecutionResult,
     ToolProposal,
+    ToolProposalCreate,
+    ToolProposalRecord,
     ToolStarted,
     Verification,
     Writeup,
@@ -54,6 +66,14 @@ from .providers import (
 )
 
 MODELS = (
+    AIChatRequest,
+    AIChatResponse,
+    AIConnectivityTestRequest,
+    AIConnectivityTestResponse,
+    SelectedArtifact,
+    SelectedImport,
+    ModelCallRecord,
+    ModelCallRecords,
     Scope,
     ChallengeCreate,
     Challenge,
@@ -65,6 +85,13 @@ MODELS = (
     ToolApproval,
     ToolStarted,
     ToolExecutionResult,
+    ToolProposalRecord,
+    ToolDecisionRequest,
+    ToolProposalCreate,
+    FlagConfirmationCreate,
+    ModelServiceUpdate,
+    ModelServiceNetworkUpdate,
+    ModelServiceStatus,
     Finding,
     Hypothesis,
     Verification,

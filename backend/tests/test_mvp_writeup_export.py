@@ -670,6 +670,9 @@ def test_export_manifest_describes_dossier(client: TestClient) -> None:
         "events": len(api_events),
         "artifacts": len(api_artifacts),
         "imports": 1,
+        "tool_proposals": 0,
+        "tool_executions": 0,
+        "flag_confirmations": 0,
     }
     assert manifest["completeness"] == "complete"
     assert manifest["missing_requirements"] == []

@@ -1,10 +1,9 @@
-import asyncio
 import json
 import os
 from typing import AsyncIterator, Literal, Protocol
 import httpx
 from pydantic import Field
-from .models import Model, ToolProposal, Scope
+from .models import Model
 
 
 class Capabilities(Model):
@@ -54,6 +53,8 @@ class ModelResponse(Model):
     text: str
     tool_calls: list[ToolCall] = Field(default_factory=list)
     degraded_features: list[str] = Field(default_factory=list)
+    usage: dict[str, int] | None = None
+    audit_call_id: str | None = None
 
 
 class StreamChunk(Model):
@@ -77,8 +78,17 @@ class ModelProvider(Protocol):
 
 
 class OpenAICompatibleAdapter:
-    def __init__(self, config: ProviderConfig, transport=None):
+    max_buffered_response_bytes = 512 * 1024
+
+    def __init__(self, config: ProviderConfig, transport=None, api_key: str | None = None):
         self.config, self.transport = config, transport
+        # Inline secrets come from the OS-protected settings store.  They are
+        # deliberately never placed in ProviderConfig (which is serialised into
+        # docs/contracts/openapi) or in the environment.
+        self._inline_api_key = api_key
+
+    def api_key_present(self) -> bool:
+        return bool(self._inline_api_key or os.environ.get(self.config.api_key_env))
 
     def prepare(self, request: ModelRequest) -> tuple[dict, list[str]]:
         missing = []
@@ -111,7 +121,7 @@ class OpenAICompatibleAdapter:
         return body, missing
 
     def key(self) -> str:
-        key = os.environ.get(self.config.api_key_env)
+        key = self._inline_api_key or os.environ.get(self.config.api_key_env)
         if not key:
             raise ProviderError("missing_credentials")
         return key
@@ -120,7 +130,7 @@ class OpenAICompatibleAdapter:
     def status(response):
         if response.status_code == 429:
             raise ProviderError("rate_limited", response.headers.get("retry-after"))
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             raise ProviderError(
                 "authentication"
                 if response.status_code in (401, 403)
@@ -152,13 +162,31 @@ class OpenAICompatibleAdapter:
                 timeout=self.config.timeout_seconds,
                 follow_redirects=False,
             ) as client:
-                response = await client.post(
+                async with client.stream(
+                    "POST",
                     self.config.base_url.rstrip("/") + "/chat/completions",
                     json=body,
                     headers={"Authorization": "Bearer " + self.key()},
-                )
-                self.status(response)
-                return self.parse(response.json()["choices"][0]["message"], missing)
+                ) as response:
+                    self.status(response)
+                    received = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(received) + len(chunk) > self.max_buffered_response_bytes:
+                            raise ProviderError("response_limit_exceeded")
+                        received.extend(chunk)
+                payload = json.loads(received)
+                result = self.parse(payload["choices"][0]["message"], missing)
+                usage = payload.get("usage")
+                if usage is not None:
+                    if not isinstance(usage, dict):
+                        raise ProviderError("invalid_response")
+                    filtered = {k: v for k, v in usage.items() if k in {
+                        "prompt_tokens", "completion_tokens", "total_tokens"
+                    }}
+                    if any(type(v) is not int or not 0 <= v <= 2**53-1 for v in filtered.values()):
+                        raise ProviderError("invalid_response")
+                    result.usage = filtered or None
+                return result
         except httpx.TimeoutException:
             raise ProviderError("timeout") from None
         except httpx.HTTPError:
@@ -275,55 +303,6 @@ class ProviderRegistry:
             raise ValueError("Unknown provider")
         self.selected = provider_id
 
-    def get(self, transport=None) -> ModelProvider:
+    def get(self, transport=None, api_key: str | None = None) -> ModelProvider:
         config = self.configs[self.selected]
-        return self.adapters[config.adapter](config, transport)
-
-
-def proposals(
-    response: ModelResponse, challenge_id: str, scope: Scope
-) -> list[ToolProposal]:
-    return [
-        ToolProposal(
-            challenge_id=challenge_id,
-            call_id=t.call_id,
-            tool_name=t.name,
-            arguments=t.arguments,
-            scope=scope,
-        )
-        for t in response.tool_calls
-    ]
-
-
-async def recorded_complete(
-    provider: ModelProvider, request: ModelRequest, store, cid: str
-) -> ModelResponse:
-    from .models import now
-
-    requested_at = now()
-    status = "internal_error"
-    try:
-        response = await provider.complete(request)
-        status = "success"
-        return response
-    except asyncio.CancelledError:
-        status = "cancelled"
-        raise
-    except ProviderError as error:
-        status = error.code
-        raise
-    except Exception:
-        status = "internal_error"
-        raise
-    finally:
-        store.append(
-            cid,
-            "system",
-            "model_call",
-            {
-                "provider_id": provider.config.provider_id,
-                "model_id": provider.config.model_id,
-                "requested_at": requested_at,
-                "response_status": status,
-            },
-        )
+        return self.adapters[config.adapter](config, transport, api_key=api_key)

@@ -100,6 +100,15 @@
         "title": "Source",
         "type": "string"
       },
+      "evidence_profile": {
+        "default": "real_challenge",
+        "enum": [
+          "real_challenge",
+          "synthetic_connectivity"
+        ],
+        "title": "Evidence Profile",
+        "type": "string"
+      },
       "scope": {
         "$ref": "#/$defs/Scope"
       },
@@ -216,6 +225,15 @@
           "competition"
         ],
         "title": "Source",
+        "type": "string"
+      },
+      "evidence_profile": {
+        "default": "real_challenge",
+        "enum": [
+          "real_challenge",
+          "synthetic_connectivity"
+        ],
+        "title": "Evidence Profile",
         "type": "string"
       },
       "scope": {
@@ -344,8 +362,11 @@
           "tool_proposed",
           "tool_approved",
           "tool_rejected",
+          "tool_cancelled",
+          "tool_expired",
           "tool_started",
           "tool_finished",
+          "flag_confirmed",
           "command_started",
           "command_finished",
           "artifact_added",
@@ -1278,6 +1299,33 @@
         },
         "title": "Degraded Features",
         "type": "array"
+      },
+      "usage": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Usage"
+      },
+      "audit_call_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Audit Call Id"
       }
     },
     "required": [
@@ -1318,6 +1366,33 @@
             },
             "title": "Degraded Features",
             "type": "array"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Usage"
+          },
+          "audit_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Audit Call Id"
           }
         },
         "required": [
@@ -2133,6 +2208,62 @@
     "type": "object"
   },
   "WriteupPreview": {
+    "$defs": {
+      "WriteupRequirement": {
+        "additionalProperties": false,
+        "description": "One completeness dimension with explicit proven/missing/N/A state.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proven",
+              "missing",
+              "not_applicable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Remediation"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "status"
+        ],
+        "title": "WriteupRequirement",
+        "type": "object"
+      }
+    },
     "additionalProperties": false,
     "properties": {
       "markdown": {
@@ -2144,6 +2275,20 @@
           "type": "string"
         },
         "title": "Missing Requirements",
+        "type": "array"
+      },
+      "requirements": {
+        "items": {
+          "$ref": "#/$defs/WriteupRequirement"
+        },
+        "title": "Requirements",
+        "type": "array"
+      },
+      "not_applicable_requirements": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Not Applicable Requirements",
         "type": "array"
       },
       "event_count": {
@@ -2170,6 +2315,36 @@
         },
         "title": "Warnings",
         "type": "array"
+      },
+      "model_call_count": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Model Call Count",
+        "type": "integer"
+      },
+      "tool_proposal_count": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Tool Proposal Count",
+        "type": "integer"
+      },
+      "tool_execution_count": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Tool Execution Count",
+        "type": "integer"
+      },
+      "unique_tool_output_artifact_count": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Unique Tool Output Artifact Count",
+        "type": "integer"
+      },
+      "tool_failure_count": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Tool Failure Count",
+        "type": "integer"
       }
     },
     "required": [
@@ -2248,6 +2423,1349 @@
       "base_version"
     ],
     "title": "WriteupDraftSave",
+    "type": "object"
+  },
+  "AIChatRequest": {
+    "$defs": {
+      "SelectedArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "sha256"
+        ],
+        "title": "SelectedArtifact",
+        "type": "object"
+      },
+      "SelectedImport": {
+        "additionalProperties": false,
+        "properties": {
+          "import_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Import Id",
+            "type": "string"
+          },
+          "relative_path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "import_id",
+          "relative_path",
+          "sha256"
+        ],
+        "title": "SelectedImport",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "question": {
+        "maxLength": 8000,
+        "minLength": 1,
+        "title": "Question",
+        "type": "string"
+      },
+      "confirm_external_processing": {
+        "default": false,
+        "title": "Confirm External Processing",
+        "type": "boolean"
+      },
+      "consent_challenge_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "title": "Consent Challenge Id",
+        "type": "string"
+      },
+      "selected_texts": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 12,
+        "title": "Selected Texts",
+        "type": "array"
+      },
+      "selected_files": {
+        "items": {
+          "$ref": "#/$defs/SelectedImport"
+        },
+        "maxItems": 12,
+        "title": "Selected Files",
+        "type": "array"
+      },
+      "selected_artifacts": {
+        "items": {
+          "$ref": "#/$defs/SelectedArtifact"
+        },
+        "maxItems": 12,
+        "title": "Selected Artifacts",
+        "type": "array"
+      },
+      "confirm_attachments": {
+        "default": false,
+        "title": "Confirm Attachments",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "question",
+      "consent_challenge_id"
+    ],
+    "title": "AIChatRequest",
+    "type": "object"
+  },
+  "AIChatResponse": {
+    "$defs": {
+      "ToolProposalRecord": {
+        "additionalProperties": false,
+        "description": "One immutable-arguments tool proposal plus its approval/execution state.\n\nThe row is the authoritative state; every transition is also written to the\nappend-only challenge event chain in the same SQLite transaction.",
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "model_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Call Id"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "risk_level": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "approved",
+              "running",
+              "succeeded",
+              "failed",
+              "timed_out",
+              "rejected",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "proposed_by": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "user"
+            ],
+            "title": "Proposed By",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Approval Id"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Approved By"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Approved At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decision Note"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Execution Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finished At"
+          },
+          "decision_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decision Event Id"
+          },
+          "started_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started Event Id"
+          },
+          "finished_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finished Event Id"
+          },
+          "artifact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Artifact Ids",
+            "type": "array"
+          },
+          "output_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Artifact Id"
+          },
+          "output_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Sha256"
+          },
+          "output_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Size"
+          },
+          "output_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Summary"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "challenge_id",
+          "tool_name",
+          "arguments",
+          "reason",
+          "risk_level",
+          "proposed_at",
+          "expires_at"
+        ],
+        "title": "ToolProposalRecord",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "event_id": {
+        "title": "Event Id",
+        "type": "string"
+      },
+      "answer": {
+        "title": "Answer",
+        "type": "string"
+      },
+      "provider_id": {
+        "title": "Provider Id",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "included_files": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Included Files",
+        "type": "array"
+      },
+      "verification_status": {
+        "default": "unverified_suggestion",
+        "title": "Verification Status",
+        "type": "string"
+      },
+      "call_id": {
+        "title": "Call Id",
+        "type": "string"
+      },
+      "tool_proposals": {
+        "items": {
+          "$ref": "#/$defs/ToolProposalRecord"
+        },
+        "title": "Tool Proposals",
+        "type": "array"
+      }
+    },
+    "required": [
+      "event_id",
+      "answer",
+      "provider_id",
+      "model_id",
+      "included_files",
+      "call_id"
+    ],
+    "title": "AIChatResponse",
+    "type": "object"
+  },
+  "AIConnectivityTestRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "confirm_synthetic_request": {
+        "default": false,
+        "title": "Confirm Synthetic Request",
+        "type": "boolean"
+      }
+    },
+    "title": "AIConnectivityTestRequest",
+    "type": "object"
+  },
+  "AIConnectivityTestResponse": {
+    "additionalProperties": false,
+    "properties": {
+      "success": {
+        "title": "Success",
+        "type": "boolean"
+      },
+      "provider": {
+        "title": "Provider",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "call_id": {
+        "title": "Call Id",
+        "type": "string"
+      },
+      "sent_synthetic_content_only": {
+        "title": "Sent Synthetic Content Only",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "success",
+      "provider",
+      "model_id",
+      "call_id",
+      "sent_synthetic_content_only"
+    ],
+    "title": "AIConnectivityTestResponse",
+    "type": "object"
+  },
+  "SelectedArtifact": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "title": "Artifact Id",
+        "type": "string"
+      },
+      "sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "artifact_id",
+      "sha256"
+    ],
+    "title": "SelectedArtifact",
+    "type": "object"
+  },
+  "SelectedImport": {
+    "additionalProperties": false,
+    "properties": {
+      "import_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "title": "Import Id",
+        "type": "string"
+      },
+      "relative_path": {
+        "maxLength": 1024,
+        "minLength": 1,
+        "title": "Relative Path",
+        "type": "string"
+      },
+      "sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "import_id",
+      "relative_path",
+      "sha256"
+    ],
+    "title": "SelectedImport",
+    "type": "object"
+  },
+  "ModelCallRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "call_id": {
+        "title": "Call Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Challenge Id"
+      },
+      "provider_id": {
+        "title": "Provider Id",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "purpose": {
+        "enum": [
+          "challenge_chat",
+          "synthetic_connectivity"
+        ],
+        "title": "Purpose",
+        "type": "string"
+      },
+      "synthetic": {
+        "title": "Synthetic",
+        "type": "boolean"
+      },
+      "data_scope": {
+        "title": "Data Scope",
+        "type": "string"
+      },
+      "requested_at": {
+        "title": "Requested At",
+        "type": "string"
+      },
+      "completed_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Completed At"
+      },
+      "response_status": {
+        "default": "unknown",
+        "title": "Response Status",
+        "type": "string"
+      },
+      "error_category": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error Category"
+      },
+      "usage": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Usage"
+      }
+    },
+    "required": [
+      "call_id",
+      "challenge_id",
+      "provider_id",
+      "model_id",
+      "purpose",
+      "synthetic",
+      "data_scope",
+      "requested_at"
+    ],
+    "title": "ModelCallRecord",
+    "type": "object"
+  },
+  "ModelCallRecords": {
+    "$defs": {
+      "ModelCallRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "challenge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Challenge Id"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "challenge_chat",
+              "synthetic_connectivity"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "synthetic": {
+            "title": "Synthetic",
+            "type": "boolean"
+          },
+          "data_scope": {
+            "title": "Data Scope",
+            "type": "string"
+          },
+          "requested_at": {
+            "title": "Requested At",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completed At"
+          },
+          "response_status": {
+            "default": "unknown",
+            "title": "Response Status",
+            "type": "string"
+          },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Category"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Usage"
+          }
+        },
+        "required": [
+          "call_id",
+          "challenge_id",
+          "provider_id",
+          "model_id",
+          "purpose",
+          "synthetic",
+          "data_scope",
+          "requested_at"
+        ],
+        "title": "ModelCallRecord",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "calls": {
+        "items": {
+          "$ref": "#/$defs/ModelCallRecord"
+        },
+        "title": "Calls",
+        "type": "array"
+      }
+    },
+    "title": "ModelCallRecords",
+    "type": "object"
+  },
+  "ToolProposalRecord": {
+    "additionalProperties": false,
+    "description": "One immutable-arguments tool proposal plus its approval/execution state.\n\nThe row is the authoritative state; every transition is also written to the\nappend-only challenge event chain in the same SQLite transaction.",
+    "properties": {
+      "proposal_id": {
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "challenge_id": {
+        "title": "Challenge Id",
+        "type": "string"
+      },
+      "model_call_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Model Call Id"
+      },
+      "tool_name": {
+        "title": "Tool Name",
+        "type": "string"
+      },
+      "arguments": {
+        "additionalProperties": true,
+        "title": "Arguments",
+        "type": "object"
+      },
+      "reason": {
+        "title": "Reason",
+        "type": "string"
+      },
+      "risk_level": {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "title": "Risk Level",
+        "type": "string"
+      },
+      "status": {
+        "default": "pending",
+        "enum": [
+          "pending",
+          "approved",
+          "running",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "rejected",
+          "cancelled",
+          "expired"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "proposed_by": {
+        "default": "agent",
+        "enum": [
+          "agent",
+          "user"
+        ],
+        "title": "Proposed By",
+        "type": "string"
+      },
+      "proposed_at": {
+        "title": "Proposed At",
+        "type": "string"
+      },
+      "expires_at": {
+        "title": "Expires At",
+        "type": "string"
+      },
+      "approval_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Approval Id"
+      },
+      "approved_by": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Approved By"
+      },
+      "approved_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Approved At"
+      },
+      "decision_note": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Decision Note"
+      },
+      "execution_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Execution Id"
+      },
+      "started_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Started At"
+      },
+      "finished_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Finished At"
+      },
+      "decision_event_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Decision Event Id"
+      },
+      "started_event_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Started Event Id"
+      },
+      "finished_event_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Finished Event Id"
+      },
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Artifact Ids",
+        "type": "array"
+      },
+      "output_artifact_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Output Artifact Id"
+      },
+      "output_sha256": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Output Sha256"
+      },
+      "output_size": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Output Size"
+      },
+      "output_summary": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Output Summary"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      }
+    },
+    "required": [
+      "proposal_id",
+      "challenge_id",
+      "tool_name",
+      "arguments",
+      "reason",
+      "risk_level",
+      "proposed_at",
+      "expires_at"
+    ],
+    "title": "ToolProposalRecord",
+    "type": "object"
+  },
+  "ToolDecisionRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "approving_user": {
+        "default": "local-user",
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Approving User",
+        "type": "string"
+      },
+      "note": {
+        "anyOf": [
+          {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Note"
+      }
+    },
+    "title": "ToolDecisionRequest",
+    "type": "object"
+  },
+  "ToolProposalCreate": {
+    "additionalProperties": false,
+    "properties": {
+      "tool_name": {
+        "maxLength": 100,
+        "minLength": 1,
+        "title": "Tool Name",
+        "type": "string"
+      },
+      "arguments": {
+        "additionalProperties": true,
+        "title": "Arguments",
+        "type": "object"
+      },
+      "reason": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Reason",
+        "type": "string"
+      },
+      "model_call_id": {
+        "anyOf": [
+          {
+            "maxLength": 64,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Model Call Id"
+      }
+    },
+    "required": [
+      "tool_name",
+      "reason"
+    ],
+    "title": "ToolProposalCreate",
+    "type": "object"
+  },
+  "FlagConfirmationCreate": {
+    "additionalProperties": false,
+    "description": "Human confirmation of a Flag; only a digest and length are persisted.",
+    "properties": {
+      "flag": {
+        "maxLength": 500,
+        "minLength": 1,
+        "title": "Flag",
+        "type": "string"
+      },
+      "confirmed_by": {
+        "default": "local-user",
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Confirmed By",
+        "type": "string"
+      },
+      "note": {
+        "anyOf": [
+          {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Note"
+      }
+    },
+    "required": [
+      "flag"
+    ],
+    "title": "FlagConfirmationCreate",
+    "type": "object"
+  },
+  "ModelServiceUpdate": {
+    "additionalProperties": false,
+    "description": "Settings update; an omitted api_key keeps the existing secret.",
+    "properties": {
+      "base_url": {
+        "anyOf": [
+          {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Base Url"
+      },
+      "model_id": {
+        "anyOf": [
+          {
+            "maxLength": 128,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Model Id"
+      },
+      "api_key": {
+        "anyOf": [
+          {
+            "maxLength": 512,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Api Key"
+      },
+      "clear_api_key": {
+        "default": false,
+        "title": "Clear Api Key",
+        "type": "boolean"
+      },
+      "authorize_env_key_custom_base_url": {
+        "default": false,
+        "title": "Authorize Env Key Custom Base Url",
+        "type": "boolean"
+      }
+    },
+    "title": "ModelServiceUpdate",
+    "type": "object"
+  },
+  "ModelServiceNetworkUpdate": {
+    "additionalProperties": false,
+    "properties": {
+      "network_enabled": {
+        "title": "Network Enabled",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "network_enabled"
+    ],
+    "title": "ModelServiceNetworkUpdate",
+    "type": "object"
+  },
+  "ModelServiceStatus": {
+    "additionalProperties": false,
+    "properties": {
+      "provider": {
+        "const": "deepseek",
+        "default": "deepseek",
+        "title": "Provider",
+        "type": "string"
+      },
+      "base_url": {
+        "title": "Base Url",
+        "type": "string"
+      },
+      "default_base_url": {
+        "title": "Default Base Url",
+        "type": "string"
+      },
+      "model_id": {
+        "title": "Model Id",
+        "type": "string"
+      },
+      "model_name": {
+        "title": "Model Name",
+        "type": "string"
+      },
+      "default_model_id": {
+        "title": "Default Model Id",
+        "type": "string"
+      },
+      "default_model_name": {
+        "title": "Default Model Name",
+        "type": "string"
+      },
+      "key_configured": {
+        "title": "Key Configured",
+        "type": "boolean"
+      },
+      "key_source": {
+        "anyOf": [
+          {
+            "enum": [
+              "settings",
+              "environment"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Key Source"
+      },
+      "key_storage_available": {
+        "title": "Key Storage Available",
+        "type": "boolean"
+      },
+      "key_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Key Error"
+      },
+      "config_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Config Error"
+      },
+      "network_enabled": {
+        "title": "Network Enabled",
+        "type": "boolean"
+      },
+      "network_setting": {
+        "title": "Network Setting",
+        "type": "boolean"
+      },
+      "network_env_override": {
+        "title": "Network Env Override",
+        "type": "boolean"
+      },
+      "env_key_custom_base_url_authorized": {
+        "default": false,
+        "title": "Env Key Custom Base Url Authorized",
+        "type": "boolean"
+      },
+      "env_key_custom_base_url_authorization_required": {
+        "default": false,
+        "title": "Env Key Custom Base Url Authorization Required",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "base_url",
+      "default_base_url",
+      "model_id",
+      "model_name",
+      "default_model_id",
+      "default_model_name",
+      "key_configured",
+      "key_storage_available",
+      "network_enabled",
+      "network_setting",
+      "network_env_override"
+    ],
+    "title": "ModelServiceStatus",
     "type": "object"
   }
 }

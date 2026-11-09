@@ -14,6 +14,7 @@ manifest with an explicit issue and makes the whole dossier incomplete.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -23,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+from .model_calls import disclosure_lines
+
 from .artifacts import (
     ArtifactIntegrityError,
     ArtifactPathError,
@@ -30,6 +33,19 @@ from .artifacts import (
 )
 from .imports import ImportIssue, ImportManifest
 from .models import ArtifactView, Challenge, Event, Project, WriteupDraft, now
+from .writeup import (
+    disclosure_requirements,
+    escape_absolute_paths,
+    flag_confirmation_records,
+    flag_disclosure_lines,
+    model_call_statistics,
+    sanitize_arguments,
+    split_model_calls,
+    tool_disclosure_lines,
+    tool_proposal_snapshot,
+    tool_proposal_statistics,
+    traceability_snapshot,
+)
 
 _EXPORT_DIR = ".exports"
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
@@ -94,13 +110,20 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
     return info
 
 
+def _short_digest(value: object) -> str:
+    digest = str(value or "")
+    if not digest:
+        return "未记录"
+    return digest[:16] + ("…" if len(digest) > 16 else "")
+
+
 def _event_summary(event: Event) -> str:
     payload = event.payload
     event_type = event.event_type
     if event_type == "artifact_added":
         return (
             f"证据 {payload.get('artifact_id', '')} "
-            f"sha256={str(payload.get('sha256', ''))[:16]}…"
+            f"sha256={_short_digest(payload.get('sha256'))}"
         )
     if event_type == "challenge_imported":
         return (
@@ -113,6 +136,55 @@ def _event_summary(event: Event) -> str:
         return f"人工运行记录：{command}"
     if event_type == "note":
         return str(payload.get("text", "")).replace("\n", " ")[:120]
+    if event_type == "tool_proposed":
+        arguments = sanitize_arguments(payload.get("arguments") or {})
+        return escape_absolute_paths(
+            f"工具申请 {payload.get('proposal_id', '')}："
+            f"{payload.get('tool') or payload.get('tool_name') or ''} "
+            + json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+        )[:220]
+    if event_type == "tool_approved":
+        return (
+            f"工具批准 {payload.get('proposal_id', '')}："
+            f"approval_id={payload.get('approval_id') or '未记录'} "
+            f"批准人={payload.get('approving_user') or payload.get('approved_by') or '未记录'}"
+        )
+    if event_type in {"tool_rejected", "tool_cancelled", "tool_expired"}:
+        label = {
+            "tool_rejected": "工具已拒绝",
+            "tool_cancelled": "工具已取消",
+            "tool_expired": "工具已过期",
+        }[event_type]
+        return escape_absolute_paths(
+            f"{label} {payload.get('proposal_id', '')}："
+            f"{payload.get('note') or payload.get('decision_note') or ''}"
+        )[:220]
+    if event_type == "tool_started":
+        return (
+            f"工具执行开始 {payload.get('proposal_id', '')}："
+            f"execution_id={payload.get('execution_id') or '未记录'}"
+        )
+    if event_type == "tool_finished":
+        return (
+            f"工具执行结束 {payload.get('proposal_id', '')}："
+            f"状态 {payload.get('status', '')}，"
+            f"execution_id={payload.get('execution_id') or '未记录'}，"
+            f"output_artifact_id={payload.get('output_artifact_id') or '无'}，"
+            f"output_sha256={_short_digest(payload.get('output_sha256'))}"
+        )
+    if event_type == "flag_confirmed":
+        return (
+            "人工确认 Flag："
+            f"SHA-256 前缀 {_short_digest(payload.get('flag_sha256'))}，"
+            f"长度 {payload.get('flag_length', '未记录')}，"
+            "platform_verified=false"
+        )
+    if event_type == "model_call":
+        return (
+            f"模型调用 {payload.get('call_id', '')}："
+            f"{payload.get('provider_id', '')}/{payload.get('model_id', '')} "
+            f"状态 {payload.get('response_status', 'unknown')}"
+        )
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)[:160]
 
 
@@ -121,18 +193,75 @@ def _ai_disclosure(
     project: Project | None,
     completeness: str,
     writeup_source: str,
+    model_calls: list[dict] | None,
+    tool_proposals: list[object] | None,
+    events: list[Event],
 ) -> str:
+    challenge_calls, synthetic_calls = split_model_calls(model_calls)
+    call_stats = model_call_statistics(model_calls)
+    proposal_snapshot = tool_proposal_snapshot(tool_proposals)
+    tool_stats = tool_proposal_statistics(proposal_snapshot)
+    flag_records = flag_confirmation_records(events)
+    status_counts = tool_stats["status_counts"]
+    status_text = "，".join(
+        f"{label} {status_counts.get(status, 0)}"
+        for status, label in (
+            ("pending", "待批准"),
+            ("approved", "已批准"),
+            ("running", "运行中"),
+            ("succeeded", "成功"),
+            ("failed", "失败"),
+            ("timed_out", "已超时"),
+            ("rejected", "已拒绝"),
+            ("cancelled", "已取消"),
+            ("expired", "已过期"),
+        )
+    )
     lines = [
         "# AI 使用披露",
         "",
         "本档案由 CTF Workbench 本地证据工作台导出。",
         "",
-        "- 工作台是否自动调用模型：否（本轮 MVP 未启用模型联网）",
-        "- 工作台是否自动执行工具或命令：否（本轮为人工执行模式）",
+        "- 工作台是否自动执行工具或命令：否（工具执行必须经过人工审批；自动工具执行未启用）",
         "- AI 建议是否被登记为人工执行事实：否",
         "- 是否自动生成 Flag 或平台验证截图：否",
         f"- 题目 AI 使用等级：{challenge.ai_usage_level}",
     ]
+    lines.extend(disclosure_lines(challenge_calls))
+    lines.append(
+        "- 模型调用统计（与 manifest.model_call_stats 一致）：本题模型调用 "
+        f"{call_stats['call_count']} 次（成功 {call_stats['successful']}，"
+        f"失败 {call_stats['failed']}，取消 {call_stats['cancelled']}，"
+        f"未确定 {call_stats['unknown']}）；回答未入事件 "
+        f"{call_stats['delivery_not_recorded']} 次；合成连通性测试调用 "
+        f"{call_stats['synthetic_call_count']} 次单独统计，不包含题目数据。"
+    )
+    if synthetic_calls:
+        lines.append(
+            "- 合成连通性测试调用不计入本题模型调用，且不携带题目数据。"
+        )
+    lines.append(
+        "- 工具执行必须由人工逐次批准；自动工具执行未启用，"
+        "工具结果不等同于模型推断。"
+    )
+    lines.append(
+        "- 本地工具申请统计（与 manifest.tools 一致）：共 "
+        f"{tool_stats['proposal_count']} 条（当前状态：{status_text}）；"
+        f"获得人工批准 {tool_stats['approved_count']} 条，"
+        f"已开始执行 {tool_stats['execution_count']} 次，"
+        f"唯一输出 Artifact {tool_stats['unique_output_artifact_count']} 个，"
+        f"失败/超时 {tool_stats['failure_count']} 次。"
+    )
+    lines.append(
+        "- 人工确认 Flag 统计（与 manifest.flag_confirmations 一致）："
+        f"{len(flag_records)} 条；仅记录 SHA-256 与长度，platform_verified=false，"
+        "人工确认不等于平台验证成功。"
+    )
+    lines.append("")
+    lines.extend(tool_disclosure_lines(proposal_snapshot))
+    lines.append("")
+    lines.extend(flag_disclosure_lines(events))
+    lines.append("")
     if project is not None:
         lines.append(f"- 比赛规则 AI 政策摘要：{project.ai_policy_summary or '未填写'}")
         if project.rules_sha256:
@@ -148,6 +277,50 @@ def _ai_disclosure(
     lines.append(f"- 档案完整性：{completeness}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _writeup_diff(generated: str, human: str) -> dict:
+    """Describe human-vs-server Writeup differences without overwriting either."""
+    generated_bytes = generated.encode("utf-8")
+    human_bytes = human.encode("utf-8")
+    change = list(
+        difflib.unified_diff(
+            generated.splitlines(keepends=True),
+            human.splitlines(keepends=True),
+            fromfile="writeup_generated.md",
+            tofile="writeup.md",
+            n=2,
+        )
+    )
+    added = sum(1 for line in change if line.startswith("+") and not line.startswith("+++"))
+    removed = sum(1 for line in change if line.startswith("-") and not line.startswith("---"))
+    preview = "".join(change)
+    encoded = preview.encode("utf-8")
+    if len(encoded) > 16_384:
+        encoded = encoded[:16_384] + b"\n...[diff truncated]\n"
+        preview = encoded.decode("utf-8", errors="replace")
+    return {
+        "changed": generated_bytes != human_bytes,
+        "generated_sha256": hashlib.sha256(generated_bytes).hexdigest(),
+        "human_sha256": hashlib.sha256(human_bytes).hexdigest(),
+        "added_lines": added,
+        "removed_lines": removed,
+        "diff_sha256": hashlib.sha256("".join(change).encode("utf-8")).hexdigest(),
+        "diff_preview": preview,
+        "final_source": "human",
+        "human_never_overwritten": True,
+    }
+
+
+def _normalise_calls(model_calls: list[object] | None) -> list[dict]:
+    normalised: list[dict] = []
+    for call in model_calls or []:
+        if isinstance(call, dict):
+            normalised.append(dict(call))
+            continue
+        dump = getattr(call, "model_dump", None)
+        normalised.append(dump() if callable(dump) else dict(call))
+    return normalised
 
 
 def build_export_archive(
@@ -168,7 +341,26 @@ def build_export_archive(
     missing_requirements: list[str],
     writeup_warnings: list[str],
     integrity: dict,
+    model_calls: list[dict] | None = None,
+    tool_proposals: list[object] | None = None,
 ) -> ExportResult:
+    # One snapshot feeds the preview-derived writeup, the manifest, the AI
+    # disclosure and the timeline: nothing below re-reads or re-derives facts.
+    calls = _normalise_calls(model_calls)
+    proposal_snapshot = tool_proposal_snapshot(tool_proposals)
+    call_stats = model_call_statistics(calls)
+    tool_stats = tool_proposal_statistics(proposal_snapshot)
+    flag_records = flag_confirmation_records(events)
+    traceability = traceability_snapshot(challenge, calls, proposal_snapshot)
+    disclosure_missing, disclosure_warnings = disclosure_requirements(
+        model_calls, tool_proposals, integrity
+    )
+    export_missing_requirements = list(missing_requirements)
+    for code in disclosure_missing:
+        if code not in export_missing_requirements:
+            export_missing_requirements.append(code)
+    if not integrity.get("valid") and "integrity" not in export_missing_requirements:
+        export_missing_requirements.append("integrity")
     data_root = Path(data_root).resolve()
     export_dir = data_root / _EXPORT_DIR
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +369,9 @@ def build_export_archive(
     added: dict[str, str] = {}
     missing_files: list[str] = []
     warnings = list(writeup_warnings)
+    for warning in disclosure_warnings:
+        if warning not in warnings:
+            warnings.append(warning)
     import_statuses: list[dict] = []
     import_export_error = False
     manifests = sorted(manifests, key=lambda item: (item.created_at, item.import_id))
@@ -230,6 +425,11 @@ def build_export_archive(
             "created_at": manifest.created_at,
             "status": "exported",
             "exported_file_count": 0,
+            "original_archive_entry_count": len(manifest.files),
+            "original_archive_entries": [
+                item.relative_path for item in manifest.files
+            ],
+            "generated_manifest": None,
             "missing_files": [],
             "error": None,
         }
@@ -252,6 +452,19 @@ def build_export_archive(
             else:
                 add_bytes(archive, f"{prefix}/original.zip", data)
                 status["exported_file_count"] += 1
+        # The import system writes this canonical manifest into the extracted
+        # directory.  It is generated metadata, not an entry of the original
+        # challenge ZIP, so keep it labelled and separate from original entries.
+        generated_manifest = manifest.canonical_bytes()
+        generated_name = f"{prefix}/generated-manifest.json"
+        add_bytes(archive, generated_name, generated_manifest)
+        status["generated_manifest"] = {
+            "path": generated_name,
+            "sha256": hashlib.sha256(generated_manifest).hexdigest(),
+            "size": len(generated_manifest),
+            "is_original_archive_entry": False,
+            "generated_by": "ctf-workbench-import",
+        }
         import_root = workspace_challenge / "imports" / manifest.import_id
         for item in manifest.files:
             try:
@@ -389,27 +602,29 @@ def build_export_archive(
                 generated_writeup_bytes,
             )
             add_bytes(archive, "writeup.md", final_writeup_bytes)
-            # Missing/tampered evidence or an unverified import makes the
-            # delivered dossier incomplete even if metadata-level preview passed.
+            # Missing/tampered evidence, an unverified import or an unresolved
+            # disclosure fact makes the delivered dossier incomplete even if the
+            # metadata-level preview passed.
             export_completeness = (
                 "incomplete"
                 if (
                     missing_files
                     or import_export_error
                     or writeup_integrity_error is not None
+                    or export_missing_requirements
                 )
                 else completeness
             )
-            add_bytes(
-                archive,
-                "ai_disclosure.md",
-                _ai_disclosure(
-                    challenge,
-                    project,
-                    export_completeness,
-                    writeup_source_label,
-                ).encode("utf-8"),
-            )
+            disclosure_markdown = _ai_disclosure(
+                challenge,
+                project,
+                export_completeness,
+                writeup_source_label,
+                calls,
+                proposal_snapshot,
+                events,
+            ).encode("utf-8")
+            add_bytes(archive, "ai_disclosure.md", disclosure_markdown)
 
             manifest_payload = {
                 "schema": "ctf-workbench-evidence-export/1",
@@ -420,14 +635,27 @@ def build_export_archive(
                     "events": len(events),
                     "artifacts": len(artifacts),
                     "imports": len(import_statuses),
+                    "tool_proposals": len(proposal_snapshot),
+                    "tool_executions": tool_stats["execution_count"],
+                    "flag_confirmations": len(flag_records),
                 },
                 "completeness": export_completeness,
-                "missing_requirements": missing_requirements,
+                "missing_requirements": export_missing_requirements,
                 "missing_files": missing_files,
                 "warnings": sorted(set(warnings)),
                 "integrity": integrity,
+                # No arbitrary command/shell/Python execution is enabled; only
+                # the fixed read-only tool registry can run, after human
+                # approval of each proposal.
                 "tool_execution_enabled": False,
+                "read_only_tool_execution_enabled": True,
                 "ai_suggestions_are_not_actions": True,
+                "model_calls": calls,
+                "model_call_stats": call_stats,
+                "tool_proposals": proposal_snapshot,
+                "tools": tool_stats,
+                "flag_confirmations": flag_records,
+                "traceability": traceability,
                 "writeup": {
                     "final_source": final_writeup_source,
                     "final_sha256": hashlib.sha256(final_writeup_bytes).hexdigest(),
@@ -447,6 +675,11 @@ def build_export_archive(
                         else None
                     ),
                     "integrity_error": writeup_integrity_error,
+                    "human_generated_diff": (
+                        _writeup_diff(generated_writeup_markdown, human_writeup.content)
+                        if human_writeup is not None
+                        else None
+                    ),
                 },
                 "imports": import_statuses,
                 "artifacts": [
@@ -474,7 +707,7 @@ def build_export_archive(
                     "本证据档案不完整（INCOMPLETE）。",
                     "",
                     "缺失/未确认项：",
-                    *[f"- {item}" for item in missing_requirements],
+                    *[f"- {item}" for item in export_missing_requirements],
                 ]
                 if missing_files:
                     incomplete_lines.extend(
